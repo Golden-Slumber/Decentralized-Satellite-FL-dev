@@ -52,20 +52,23 @@ class EuroSatCNN(nn.Module):
 class EuroSatTask(object):
     def __init__(self, args, dataset, model):
         self.args = args
-        self.dataset = deepcopy(dataset)
-        self.model = deepcopy(model)
-
+        self.dataset = dataset
         use_cuda = torch.cuda.is_available()
         self.device = torch.device("cuda" if use_cuda else "cpu")
-        self.model = self.model.to(self.device)
+        self.model = EuroSatCNN().to(self.device)
+        self.model_update(model)
+
         self.criterion = nn.CrossEntropyLoss().to(self.device)
         self.train_loader = DataLoader(self.dataset, batch_size=self.args.batch_size, shuffle=True)
+        self.training_loss = 0.0
 
     def local_training(self):
         optimizer = optim.SGD(self.model.parameters(), lr=self.args.lr, momentum=self.args.momentum)
 
         self.model.train()
         for local_iter in range(self.args.local_iters):
+            batch_count = 0
+            self.training_loss = 0.0
             for batch_idx, (images, labels) in enumerate(self.train_loader):
                 images, labels = images.to(self.device), labels.to(self.device)
                 labels = labels.view(-1)
@@ -76,13 +79,12 @@ class EuroSatTask(object):
                 loss.backward()
                 optimizer.step()
 
-                if self.args.verbose and (batch_idx % 10 == 0):
-                    print('| Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(local_iter,
-                                                                                        batch_idx * len(images),
-                                                                                        len(self.train_loader.dataset),
-                                                                                        100. * batch_idx / len(
-                                                                                            self.train_loader),
-                                                                                        loss.item()))
+                batch_count += 1
+                self.training_loss += loss.item()
+
+            self.training_loss /= batch_count
+            if self.args.verbose:
+                print('\t Local Epoch : {} \t Loss: {:.6f}'.format(local_iter, self.training_loss))
 
     def inference(self):
         self.model.eval()
@@ -99,7 +101,7 @@ class EuroSatTask(object):
 
                 _, pred_labels = torch.max(outputs, 1)
                 pred_labels = pred_labels.view(-1)
-                correct = torch.sum(torch.eq(pred_labels, labels)).item()
+                correct += torch.sum(torch.eq(pred_labels, labels)).item()
                 total += len(labels)
 
         accuracy = correct / total
@@ -107,6 +109,9 @@ class EuroSatTask(object):
 
     def get_model(self):
         return self.model.state_dict()
+
+    def get_training_loss(self):
+        return self.training_loss
 
     def model_update(self, model_parameters):
         self.model.load_state_dict(model_parameters)

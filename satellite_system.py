@@ -4,12 +4,14 @@ import sys
 import numpy
 from copy import deepcopy
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader, Dataset, random_split
 from learning_task import EuroSatTask
 from constants import *
 
 home_dir = './'
 sys.path.append(home_dir)
+use_cuda = torch.cuda.is_available()
+device = torch.device("cuda" if use_cuda else "cpu")
 
 
 class DatasetSplit(Dataset):
@@ -23,6 +25,19 @@ class DatasetSplit(Dataset):
     def __getitem__(self, item):
         image, label = self.dataset[self.idxs[item]]
         return torch.tensor(image), torch.tensor(label)
+
+
+class LocalDataset(Dataset):
+    def __init__(self, data, label):
+        self.data = deepcopy(data)
+        self.label = deepcopy(label)
+        self.len = data.shape[0]
+
+    def __len__(self):
+        return self.len
+
+    def __getitem__(self, item):
+        return self.data[item], self.label[item]
 
 
 def model_aggregation(model_list, average_weights):
@@ -43,23 +58,26 @@ class Satellite(object):
 
 class Plane(object):
     def __init__(self, plane_idx, num_satellites, plane_dataset, datasize_by_satellite, init_model, args):
+        print('Plane {} begin initialization'.format(plane_idx))
         self.plane_idx = plane_idx
         self.num_satellites = num_satellites
-        self.plane_dataset = deepcopy(plane_dataset)
+        self.plane_dataset = plane_dataset
         self.datasize_by_satellite = deepcopy(datasize_by_satellite)
         self.sum_weight_arr = deepcopy(datasize_by_satellite) / numpy.sum(datasize_by_satellite)
         self.intra_plane_model = deepcopy(init_model)
         self.args = args
 
         self.satellite_list = []
-        total_sample_idxs = [i for i in range(len(plane_dataset))]
+        generator = torch.Generator().manual_seed(42)
+        self.satellite_dataset_list = random_split(plane_dataset, datasize_by_satellite, generator=generator)
+        # total_sample_idxs = [i for i in range(len(plane_dataset))]
         for satellite_idx in range(num_satellites):
-            local_sample_idx = set(
-                numpy.random.choice(total_sample_idxs, int(datasize_by_satellite[satellite_idx]), replace=False))
-            total_sample_idxs = list(set(total_sample_idxs) - local_sample_idx)
+            # local_sample_idx = set(
+            #     numpy.random.choice(total_sample_idxs, int(datasize_by_satellite[satellite_idx]), replace=False))
+            # total_sample_idxs = list(set(total_sample_idxs) - local_sample_idx)
 
-            new_learning_task = EuroSatTask(args, DatasetSplit(self.plane_dataset, local_sample_idx),
-                                            deepcopy(init_model))
+            # local_data, local_label = plane_dataset[list(local_sample_idx)]
+            new_learning_task = EuroSatTask(args, self.satellite_dataset_list[satellite_idx], init_model)
             new_satellite = Satellite(satellite_idx, self.plane_idx, new_learning_task)
             self.satellite_list.append(new_satellite)
 
@@ -75,8 +93,10 @@ class Plane(object):
         for key in tmp_model.keys():
             zero_model[key] -= tmp_model[key]
         for p in range(num_planes):
-            self.received_relay_models.append(zero_model)
+            self.received_relay_models.append(deepcopy(zero_model))
+            self.transmitted_relay_models.append(deepcopy(zero_model))
             self.received_relay_counts.append(0)
+            self.transmitted_relay_counts.append(0)
 
     def get_satellites(self):
         return self.satellite_list
@@ -125,7 +145,7 @@ class Constellation(object):
                  init_model, args):
         self.num_planes = num_planes
         self.satellites_by_plane = deepcopy(satellites_by_plane)
-        self.constellation_dataset = deepcopy(constellation_dataset)
+        self.constellation_dataset = constellation_dataset
         self.test_dataset = test_dataset
         self.datasize_by_plane = deepcopy(datasize_by_plane)
         self.sum_weight_arr = numpy.array(list(map(sum, datasize_by_plane))) / sum(map(sum, datasize_by_plane))
@@ -137,18 +157,22 @@ class Constellation(object):
         self.convergence_error = numpy.zeros(self.args.iterations)
         self.consensus_error = numpy.zeros(self.args.iterations)
         self.test_accuracy = numpy.zeros(self.args.iterations)
-        self.test_task = EuroSatTask(args, test_dataset, deepcopy(init_model))
+        self.test_task = EuroSatTask(args, test_dataset, init_model)
 
         self.plane_list = []
-        total_sample_idxs = [i for i in range(len(constellation_dataset))]
+        generator = torch.Generator().manual_seed(42)
+        self.plane_dataset_list = random_split(constellation_dataset, list(map(sum, datasize_by_plane)),
+                                               generator=generator)
+        # total_sample_idxs = [i for i in range(len(constellation_dataset))]
         for plane_idx in range(num_planes):
-            plane_sample_idx = set(
-                numpy.random.choice(total_sample_idxs, int(sum(datasize_by_plane[plane_idx])), replace=False))
-            total_sample_idxs = list(set(total_sample_idxs) - plane_sample_idx)
+            # plane_sample_idx = set(
+            #     numpy.random.choice(total_sample_idxs, int(sum(datasize_by_plane[plane_idx])), replace=False))
+            # total_sample_idxs = list(set(total_sample_idxs) - plane_sample_idx)
 
+            # local_data, local_label = constellation_dataset[list(plane_sample_idx)]
             new_plane = Plane(plane_idx, self.satellites_by_plane[plane_idx],
-                              DatasetSplit(self.constellation_dataset, plane_sample_idx), datasize_by_plane[plane_idx],
-                              deepcopy(init_model), args)
+                              self.plane_dataset_list[plane_idx], datasize_by_plane[plane_idx],
+                              init_model, args)
             self.plane_list.append(new_plane)
 
     def set_connectivity_matrix(self, connectivity_matrix):
@@ -161,13 +185,7 @@ class Constellation(object):
                 plane.intra_plane_training()
                 plane.intra_plane_model_aggregation()
         for plane in self.plane_list:
-            intra_plane_model_list.append(deepcopy(plane.get_intra_plane_model()))
-
-        self.global_model = deepcopy(intra_plane_model_list[0])
-        for key in self.global_model.keys():
-            self.global_model[key] /= self.num_planes
-            for i in range(1, self.num_planes):
-                self.global_model[key] += intra_plane_model_list[i] / self.num_planes
+            intra_plane_model_list.append(plane.get_intra_plane_model())
 
         if aggregation_scheme == GOSSIP:
             # generate mixing matrix
@@ -176,6 +194,7 @@ class Constellation(object):
                 num_neighbors = numpy.sum(self.connectivity_matrix[p])
                 average_matrix[p] = self.connectivity_matrix[p] / num_neighbors
 
+            # print(average_matrix)
             for p in range(self.num_planes):
                 plane_model = model_aggregation(intra_plane_model_list, list(average_matrix[p]))
                 self.plane_list[p].set_intra_plane_model(plane_model)
@@ -183,8 +202,8 @@ class Constellation(object):
             for p in range(self.num_planes):
                 # find neighbors to relay messages in the previous round
                 for neighbor in range(self.num_planes):
-                    if self.connectivity_matrix[p, neighbor] == 1:
-                        new_relay_model = intra_plane_model_list[p]
+                    if self.connectivity_matrix[p, neighbor] == 1 and p != neighbor:
+                        new_relay_model = deepcopy(intra_plane_model_list[p])
                         new_relay_count = 1
                         # calculate the messages that will be relayed to neighbor
                         for inner_p in range(self.num_planes):
@@ -199,7 +218,7 @@ class Constellation(object):
                 plane_model = deepcopy(intra_plane_model_list[p])
                 plane_count = 1
                 for neighbor in range(self.num_planes):
-                    if self.connectivity_matrix[neighbor, p] == 1:
+                    if self.connectivity_matrix[neighbor, p] == 1 and p != neighbor:
                         relay_count, relay_model = self.plane_list[neighbor].get_transmitted_message(p)
                         self.plane_list[p].set_received_message(neighbor, relay_count, relay_model)
                         plane_count += relay_count
@@ -209,9 +228,29 @@ class Constellation(object):
                     plane_model[key] /= plane_count
                 self.plane_list[p].set_intra_plane_model(plane_model)
 
+        self.global_model = deepcopy(self.plane_list[0].get_intra_plane_model())
+        for key in self.global_model.keys():
+            self.global_model[key] /= self.num_planes
+            for i in range(1, self.num_planes):
+                self.global_model[key] += deepcopy(self.plane_list[i].get_intra_plane_model())[key] / self.num_planes
+
     def save_metric(self, t):
+        training_loss = 0.0
+        for p in range(self.num_planes):
+            satellite_count = 0
+            plane_loss = 0.0
+            for satellite in self.plane_list[p].get_satellites():
+                satellite_loss = satellite.learning_task.get_training_loss()
+                plane_loss += satellite_loss
+                satellite_count += 1
+            plane_loss /= satellite_count
+            training_loss += plane_loss / self.num_planes
         self.test_task.model_update(self.global_model)
-        acc, loss = self.test_task.inference()
-        self.convergence_error[t] = loss
+        acc, _ = self.test_task.inference()
+        self.convergence_error[t] = training_loss
         self.test_accuracy[t] = acc
-        print('global round : {} \t Loss: {.6f} \t Accuracy: {.3f}%'.format(t, loss, acc))
+        print('global round : {} \t Loss: {:.6f} \t Accuracy: {:.3f}%'.format(t, training_loss, 100. * acc))
+
+    def reset_constellation(self, ini_model):
+        for p in self.plane_list:
+            p.set_intra_plane_model(ini_model)
