@@ -55,12 +55,13 @@ class EuroSatTask(object):
         self.dataset = dataset
         use_cuda = torch.cuda.is_available()
         self.device = torch.device("cuda" if use_cuda else "cpu")
-        self.model = EuroSatCNN().to(self.device)
-        self.model_update(model)
 
         self.criterion = nn.CrossEntropyLoss().to(self.device)
         self.train_loader = DataLoader(self.dataset, batch_size=self.args.batch_size, shuffle=True)
         self.training_loss = 0.0
+
+        self.model = EuroSatCNN().to(self.device)
+        self.model_update(model)
 
     def local_training(self):
         optimizer = optim.SGD(self.model.parameters(), lr=self.args.lr, momentum=self.args.momentum)
@@ -91,18 +92,22 @@ class EuroSatTask(object):
         loss, total, correct = 0.0, 0.0, 0.0
 
         with torch.no_grad():
+            batch_count = 0
             for batch_idx, (images, labels) in enumerate(self.train_loader):
                 images, labels = images.to(self.device), labels.to(self.device)
                 labels = labels.view(-1)
 
                 outputs = self.model(images)
                 batch_loss = self.criterion(outputs, labels)
+
+                batch_count += 1
                 loss += batch_loss.item()
 
                 _, pred_labels = torch.max(outputs, 1)
                 pred_labels = pred_labels.view(-1)
                 correct += torch.sum(torch.eq(pred_labels, labels)).item()
                 total += len(labels)
+            loss /= batch_count
 
         accuracy = correct / total
         return accuracy, loss
@@ -115,3 +120,5 @@ class EuroSatTask(object):
 
     def model_update(self, model_parameters):
         self.model.load_state_dict(model_parameters)
+        _, loss = self.inference()
+        self.training_loss = loss

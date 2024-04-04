@@ -4,8 +4,9 @@ import sys
 import numpy
 from copy import deepcopy
 import torch
-from torch.utils.data import DataLoader, Dataset, random_split
+from torch.utils.data import DataLoader, Dataset, random_split, Subset
 from learning_task import EuroSatTask
+from utils import Dirichlet_non_iid_distribution
 from constants import *
 
 home_dir = './'
@@ -160,9 +161,18 @@ class Constellation(object):
         self.test_task = EuroSatTask(args, test_dataset, init_model)
 
         self.plane_list = []
-        generator = torch.Generator().manual_seed(42)
-        self.plane_dataset_list = random_split(constellation_dataset, list(map(sum, datasize_by_plane)),
-                                               generator=generator)
+        # generator = torch.Generator().manual_seed(42)
+        # self.plane_dataset_list = random_split(constellation_dataset, list(map(sum, datasize_by_plane)),
+        #                                        generator=generator)
+        # tmp_loader = DataLoader(constellation_dataset, batch_size=len(constellation_dataset), shuffle=False)
+        targets = []
+        for i in range(len(constellation_dataset)):
+            _, target = constellation_dataset[i]
+            targets.append(target.item())
+        indices_per_plane = Dirichlet_non_iid_distribution(targets, self.args.alpha, num_planes,
+                                                           n_auxi_devices=10, seed=0)
+        indices_per_plane = numpy.array_split(numpy.concatenate(indices_per_plane), num_planes)
+        self.plane_dataset_list = [Subset(constellation_dataset, indices) for indices in indices_per_plane]
         # total_sample_idxs = [i for i in range(len(constellation_dataset))]
         for plane_idx in range(num_planes):
             # plane_sample_idx = set(

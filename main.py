@@ -15,6 +15,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=64, metavar='N')
     parser.add_argument('--lr', type=float, default=0.01, metavar='LR')
     parser.add_argument('--momentum', type=float, default=0.9, metavar='M')
+    parser.add_argument('--alpha', type=float, default=0.05)
     parser.add_argument('--local-iters', type=int, default=3, metavar='N')
     parser.add_argument('--verbose', action='store_true', default=False)
 
