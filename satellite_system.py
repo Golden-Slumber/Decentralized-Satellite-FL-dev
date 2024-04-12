@@ -159,6 +159,7 @@ class Constellation(object):
         self.consensus_error = numpy.zeros(self.args.iterations)
         self.test_accuracy = numpy.zeros(self.args.iterations)
         self.test_task = EuroSatTask(args, test_dataset, init_model)
+        self.training_task = EuroSatTask(args, constellation_dataset, init_model)
 
         self.plane_list = []
         # generator = torch.Generator().manual_seed(42)
@@ -175,6 +176,7 @@ class Constellation(object):
         self.plane_dataset_list = [Subset(constellation_dataset, indices) for indices in indices_per_plane]
         # total_sample_idxs = [i for i in range(len(constellation_dataset))]
         for plane_idx in range(num_planes):
+            # print(len(self.plane_dataset_list[plane_idx]))
             # plane_sample_idx = set(
             #     numpy.random.choice(total_sample_idxs, int(sum(datasize_by_plane[plane_idx])), replace=False))
             # total_sample_idxs = list(set(total_sample_idxs) - plane_sample_idx)
@@ -237,12 +239,34 @@ class Constellation(object):
                 for key in plane_model.keys():
                     plane_model[key] /= plane_count
                 self.plane_list[p].set_intra_plane_model(plane_model)
+        elif aggregation_scheme == ALLREDUCE:
+            weight_list = []
+            for p in range(self.num_planes):
+                weight_list.append(1 / self.num_planes)
+            all_reduced_model = model_aggregation(intra_plane_model_list, weight_list)
+            for p in range(self.num_planes):
+                self.plane_list[p].set_intra_plane_model(all_reduced_model)
 
         self.global_model = deepcopy(self.plane_list[0].get_intra_plane_model())
         for key in self.global_model.keys():
             self.global_model[key] /= self.num_planes
             for i in range(1, self.num_planes):
                 self.global_model[key] += deepcopy(self.plane_list[i].get_intra_plane_model())[key] / self.num_planes
+
+    def save_metric_v2(self, t):
+        loss = 0.0
+        acc = 0.0
+        for p in range(self.num_planes):
+            plane_model = self.plane_list[p].get_intra_plane_model()
+            self.training_task.model_update(plane_model)
+            self.test_task.model_update(plane_model)
+            _, plane_loss = self.training_task.inference()
+            plane_acc, _ = self.test_task.inference()
+            loss += plane_loss / self.num_planes
+            acc += plane_acc / self.num_planes
+        self.convergence_error[t] = loss
+        self.test_accuracy[t] = acc
+        print('global round : {} \t Loss: {:.6f} \t Accuracy: {:.3f}%'.format(t, loss, 100. * acc))
 
     def save_metric(self, t):
         training_loss = 0.0

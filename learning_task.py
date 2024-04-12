@@ -116,9 +116,9 @@ class EuroSatTask(object):
         return self.model.state_dict()
 
     def get_training_loss(self):
+        _, loss = self.inference()
+        self.training_loss = loss
         return self.training_loss
 
     def model_update(self, model_parameters):
         self.model.load_state_dict(model_parameters)
-        _, loss = self.inference()
-        self.training_loss = loss

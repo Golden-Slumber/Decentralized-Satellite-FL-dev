@@ -50,3 +50,64 @@ def Dirichlet_non_iid_distribution(targets, non_iid_alpha, n_devices, seed=0, n_
                     pass
         idx_batch += _idx_batch
     return idx_batch
+
+
+def time_varying_topology(num_planes, t):
+    connectivity_matrix = numpy.zeros((num_planes, num_planes))
+    if t % 3 == 0:
+        for i in range(num_planes):
+            connectivity_matrix[i, i] = 1
+            if int(2 * i) < num_planes:
+                connectivity_matrix[i, int(2 * i)] = 1
+                connectivity_matrix[int(2 * i), i] = 1
+            if int(2 * i + 1) < num_planes:
+                connectivity_matrix[i, int(2 * i + 1)] = 1
+                connectivity_matrix[int(2 * i + 1), i] = 1
+    elif t % 3 == 1:
+        for i in range(num_planes):
+            connectivity_matrix[i, i] = 1
+            for j in range(num_planes):
+                if i - j == 1 or j - i == 1:
+                    connectivity_matrix[i, j] = 1
+    elif t % 3 == 2:
+        for i in range(num_planes):
+            connectivity_matrix[i, i] = 1
+            for j in range(num_planes):
+                if i - j == 1 or j - i == 1:
+                    connectivity_matrix[i, j] = 1
+        connectivity_matrix[0, num_planes - 1] = 1
+        connectivity_matrix[num_planes - 1, 0] = 1
+    return connectivity_matrix
+
+
+def fixed_binary_tree_topology(num_planes):
+    connectivity_matrix = numpy.zeros((num_planes, num_planes))
+    for i in range(num_planes):
+        connectivity_matrix[i, i] = 1
+        if int(2 * i) < num_planes:
+            connectivity_matrix[i, int(2 * i)] = 1
+            connectivity_matrix[int(2 * i), i] = 1
+        if int(2 * i + 1) < num_planes:
+            connectivity_matrix[i, int(2 * i + 1)] = 1
+            connectivity_matrix[int(2 * i + 1), i] = 1
+    return connectivity_matrix
+
+def fixed_chain_topology(num_planes):
+    connectivity_matrix = numpy.zeros((num_planes, num_planes))
+    for i in range(num_planes):
+        connectivity_matrix[i, i] = 1
+        for j in range(num_planes):
+            if i - j == 1 or j - i == 1:
+                connectivity_matrix[i, j] = 1
+    return connectivity_matrix
+
+def fixed_ring_topology(num_planes):
+    connectivity_matrix = numpy.zeros((num_planes, num_planes))
+    for i in range(num_planes):
+        connectivity_matrix[i, i] = 1
+        for j in range(num_planes):
+            if i - j == 1 or j - i == 1:
+                connectivity_matrix[i, j] = 1
+    connectivity_matrix[0, num_planes - 1] = 1
+    connectivity_matrix[num_planes - 1, 0] = 1
+    return connectivity_matrix
