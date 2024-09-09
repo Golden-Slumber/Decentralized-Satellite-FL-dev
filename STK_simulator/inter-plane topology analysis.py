@@ -4,15 +4,17 @@ from tqdm import tqdm
 from comtypes.gen import STKObjects, STKUtil, AgStkGatorLib
 from comtypes.client import CreateObject, GetActiveObject, GetEvents, ShowEvents
 
-PLANE_NUM = 7
-SAT_NUM = 20
+PLANE_NUM = 9
+SAT_NUM = 10
 CARRIER_FREQUENCY = 2.4  # GHz
 EIRP = 10  # dbW
-STEP_SEC = 600  # sec
+STEP_SEC = 3600  # sec
 LINK_INFO_ELEMENTS = ['Prop Loss', 'EIRP', 'Rcvd. Frequency', 'Freq. Doppler Shift', 'Bandwidth Overlap',
                       'Rcvd. Iso. Power', 'Flux Density', 'g/T', 'C/No', 'Bandwidth', 'C/N', 'Spectral Flux Density',
                       'Eb/No', 'BER']
-DOPPLER_THRESHOLD = 0.05  # GHz
+SIMPLIFIED_LINK_ELEMENTS = ['EIRP', 'Freq. Doppler Shift', 'Eb/No']
+DOPPLER_THRESHOLD = 6e-5  # GHz
+ANALYSIS_INTERVAL = 86400  # sec
 
 
 def set_transmitter_receiver(sat_list):
@@ -35,11 +37,36 @@ def set_transmitter_receiver(sat_list):
         receiver_model_obj.AutoTrackFrequency = True
 
 
+def access_information(sat1, sat2, sat_dic):
+    trans_sat = sat_dic[sat1].Children.GetElements(STKObjects.eTransmitter)[0]
+    trans_obj = trans_sat.QueryInterface(STKObjects.IAgStkObject)
+    recv_sat = sat_dic[sat2].Children.GetElements(STKObjects.eReceiver)[0]
+    recv_obj = recv_sat.QueryInterface(STKObjects.IAgStkObject)
+    access = recv_obj.GetAccessToObject(trans_obj)
+
+    access.ComputeAccess()
+    if access.ComputedAccessIntervalTimes.Count != 0:
+        access_data = access.DataProviders.Item('Access Data')
+        access_data_obj = access_data.QueryInterface(STKObjects.IAgDataPrvInterval)
+        access_results = access_data_obj.Exec(scenario_obj.StartTime, scenario_obj.StopTime)
+        access_start_time_list = list(access_results.DataSets.GetDataSetByName('Start Time').GetValues())
+        access_stop_time_list = list(access_results.DataSets.GetDataSetByName('Stop Time').GetValues())
+        # duration_list = list(access_results.DataSets.GetDataSetByName('Duration').GetValues())
+
+        link_info = access.DataProviders.Item('Link Information')
+        link_info_obj = link_info.QueryInterface(STKObjects.IAgDataPrvTimeVar)
+        link_info_results = link_info_obj.ExecElements(access_start_time_list[0], access_stop_time_list[0],
+                                                       STEP_SEC, SIMPLIFIED_LINK_ELEMENTS)
+        for i in range(link_info_results.DataSets.Count):
+            print(link_info_results.DataSets.ElementNames[i])
+
+
 def compute_access(access):
     access.ComputeAccess()
-    valid_access_start_list = []
-    valid_access_stop_list = []
-    valid_snr_list = []
+    # valid_access_start_list = []
+    # valid_access_stop_list = []
+    # valid_snr_list = []
+    connection_list = []
     if access.ComputedAccessIntervalTimes.Count != 0:
         access_data = access.DataProviders.Item('Access Data')
         access_data_obj = access_data.QueryInterface(STKObjects.IAgDataPrvInterval)
@@ -54,20 +81,24 @@ def compute_access(access):
             link_info = access.DataProviders.Item('Link Information')
             link_info_obj = link_info.QueryInterface(STKObjects.IAgDataPrvTimeVar)
             link_info_results = link_info_obj.ExecElements(access_start_time_list[idx], access_stop_time_list[idx],
-                                                           STEP_SEC, LINK_INFO_ELEMENTS)
+                                                           STEP_SEC, SIMPLIFIED_LINK_ELEMENTS)
             doppler_list = list(link_info_results.DataSets.GetDataSetByName('Freq. Doppler Shift').GetValues())
             snr_list = list(link_info_results.DataSets.GetDataSetByName('Eb/No').GetValues())
+            print(max(doppler_list))
             if max(doppler_list) < DOPPLER_THRESHOLD:
-                valid_access_start_list.append(access_start_time_list[idx])
-                valid_access_stop_list.append(access_stop_time_list[idx])
-                valid_snr_list.append(sum(snr_list) / len(snr_list))
-    return valid_access_start_list, valid_access_stop_list, valid_snr_list
+                # valid_access_start_list.append(access_start_time_list[idx])
+                # valid_access_stop_list.append(access_stop_time_list[idx])
+                # valid_snr_list.append(sum(snr_list) / len(snr_list))
+                connection_list.append(
+                    (access_start_time_list[idx], access_stop_time_list[idx], sum(snr_list) / len(snr_list)))
+    return connection_list
 
 
 def check_access(plane_idx, neighbor_idx, sat_dic):
     stk_root.ExecuteCommand('RemoveAllAccess /')
 
-    connection_start_time = 86400.0
+    connection_list = []
+    connection_start_time = 0.0
     connection_stop_time = 0.0
     avg_snr = 0.0
     access_flag = False
@@ -81,16 +112,34 @@ def check_access(plane_idx, neighbor_idx, sat_dic):
         recv_obj = recv_sat.QueryInterface(STKObjects.IAgStkObject)
 
         access = recv_obj.GetAccessToObject(trans_obj)
-        valid_access_start_list, valid_access_stop_list, valid_snr_list = compute_access(access)
-        for j in range(len(valid_access_start_list)):
-            if valid_access_start_list[j] <= connection_start_time and valid_access_stop_list[j] > connection_stop_time:
-                connection_start_time = valid_access_start_list[j]
-                connection_stop_time = valid_access_stop_list[j]
-                if avg_snr != 0.0:
-                    avg_snr = (avg_snr + valid_snr_list[j]) / 2
-                else:
-                    avg_snr = valid_snr_list[j]
-    if connection_start_time == 0 and connection_stop_time == 86400:
+        print('Sat' + str(plane_idx + 1) + '01--Sat' + str(neighbor_idx + 1) + tail_str)
+        connection_list = connection_list + compute_access(access)
+        # print(valid_access_start_list)
+        # print(valid_access_stop_list)
+        # print(valid_snr_list)
+        # for j in range(len(connection_list)):
+        #     extend_stop_flag = connection_list[j][0] <= connection_stop_time < connection_list[
+        #         j][1]
+        #     extend_start_flag = connection_list[j][0] < connection_start_time <= connection_list[j][1]
+        #     if extend_start_flag or extend_stop_flag:
+        #         connection_start_time = min(connection_list[j][0], connection_start_time)
+        #         connection_stop_time = max(connection_list[j][1], connection_stop_time)
+        #         if avg_snr != 0.0:
+        #             avg_snr = (avg_snr + connection_list[j][2]) / 2
+        #         else:
+        #             avg_snr = connection_list[j][2]
+    connection_list = sorted(connection_list, key=lambda t: (t[0], t[1]))
+    print(connection_list)
+    flag_time = connection_start_time
+    flag_snr = 0.0
+    for i in range(len(connection_list)):
+        while i < len(connection_list) and connection_list[i][0] <= flag_time:
+            connection_stop_time = connection_list[i][1]
+            flag_snr = connection_list[i][2]
+            i = i + 1
+        avg_snr = avg_snr + flag_snr * (connection_stop_time - flag_time) / ANALYSIS_INTERVAL
+        flag_time = connection_stop_time
+    if connection_start_time == 0 and connection_stop_time == ANALYSIS_INTERVAL:
         access_flag = True
     return access_flag, avg_snr
 
@@ -110,17 +159,21 @@ if __name__ == '__main__':
     print("Launching Scenario Successful")
 
     sat_list = stk_root.CurrentScenario.Children.GetElements(STKObjects.eSatellite)
-    set_transmitter_receiver(sat_list)
+    # set_transmitter_receiver(sat_list)
 
     sat_dic = {}
     print("Creating Satellite Dictionary")
     for sat in tqdm(sat_list):
         sat_dic[sat.InstanceName] = sat
 
+    # access_information('Sat101', 'Sat201', sat_dic)
+    # check_access(4, 2, sat_dic)
+
     connectivity_matrix = numpy.zeros((PLANE_NUM, PLANE_NUM))
     for i in range(PLANE_NUM):
-        for j in range(PLANE_NUM):
+        for j in range(i + 1, PLANE_NUM):
             access_flag, avg_snr = check_access(i, j, sat_dic)
             if access_flag:
                 connectivity_matrix[i, j] = avg_snr
+                connectivity_matrix[j, i] = avg_snr
     print(connectivity_matrix)
