@@ -93,3 +93,19 @@ class TemporalBN(nn.Module):
                 out.append(self.bns(x[step]))
         out = torch.stack(out)
         return out
+
+
+class ReadOut(nn.Module):
+    def __init__(self, mode='psp_avg', neuron=None, neuron_args=None):
+        super(ReadOut, self).__init__()
+        self.mode = mode
+        if 'vmem' in mode:
+            self.neuron = neuron(**neuron_args)
+
+    def forward(self, x):
+        trace = x
+        if 'max' in self.mode:
+            out, _ = torch.max(trace, axis=0)
+        elif 'avg' in self.mode:
+            out = torch.max(trace, axis=0)
+        return out

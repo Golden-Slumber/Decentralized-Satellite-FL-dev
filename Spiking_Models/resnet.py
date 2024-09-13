@@ -81,3 +81,39 @@ class Bottleneck(nn.Module):
         out += self.shortcut(x)
         out = self.spike3(out)
         return out
+
+
+class ResNet(nn.Module):
+    def __init__(self, block, num_block_layers, num_classes=10, in_channel=3, bn_type='', **kwargs_spikes):
+        super(ResNet, self).__init__()
+        self.in_planes = 64
+        self.bn_type = bn_type
+        self.kwargs_spikes = kwargs_spikes
+        self.nb_steps = kwargs_spikes['nb_steps']
+        self.conv0 = nn.Sequential(
+            tdLayer(nn.Conv2d(in_channel, self.in_planes, kernel_size=3, padding=1, stride=1, bias=False),
+                    nb_steps=self.nb_steps),
+            warpBN(self.in_planes, bn_type, self.nb_steps),
+            LIFLayer(**kwargs_spikes)
+        )
+        self.layer1 = self._make_layer(block, 64, num_block_layers[0], stride=1)
+        self.layer2 = self._make_layer(block, 128, num_block_layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, num_block_layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, num_block_layers[3], stride=2)
+
+        self.avg_pool = tdLayer(nn.AdaptiveAvgPool2d((1, 1)), nb_steps=self.nb_steps)
+        self.classifier = nn.Sequential(
+            tdLayer(nn.Linear(512 * block.expansion, num_classes), nb_steps=self.nb_steps),
+            ReadOut()
+        )
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride, self.bn_type, **self.kwargs_spikes))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+
+    # def forward(self, x):
+    #     out, _ = torch.broadcast_tensors()
