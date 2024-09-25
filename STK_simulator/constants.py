@@ -10,7 +10,7 @@ LINK_INFO_ELEMENTS = ['Time', 'Strand Name', 'Link Name', 'Beam ID', 'Xmtr Beam 
                       'C/N', 'Eb/No', 'BER', 'log(BER)', 'Link Margin', 'Link Margin Type',
                       'Link Margin Value', 'Propagation Delay', 'Propagation Distance', 'Spectral Flux Density']
 
-WlakerStarConnectivity = [[0., 14.15417153, 0., 0., 0., 0.,
+WalkerStarConnectivity = [[0., 14.15417153, 0., 0., 0., 0.,
                            0., 0., 0.],
                           [14.15417153, 0., 14.15366196, 13.52495064, 0., 0.,
                            0., 0., 0.],
@@ -28,3 +28,5 @@ WlakerStarConnectivity = [[0., 14.15417153, 0., 0., 0., 0.,
                            14.16236968, 0., 14.16612297],
                           [0., 0., 0., 0., 0., 0.,
                            13.55530994, 14.16612297, 0.]]
+
+print(WalkerStarConnectivity)

@@ -1,5 +1,5 @@
 import numpy
-from constants import WlakerStarConnectivity
+from constants import WalkerStarConnectivity
 
 
 def floyd_shortest_path(connectivity_matrix):
@@ -51,7 +51,7 @@ def simplified_MDST_construction(connectivity_matrix):
 
 
 if __name__ == '__main__':
-    connectivity_matrix = WlakerStarConnectivity
+    connectivity_matrix = WalkerStarConnectivity
     n = len(connectivity_matrix)
     for i in range(n):
         for j in range(n):

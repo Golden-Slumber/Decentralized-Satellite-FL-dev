@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import pickle
 from Spiking_Models.layer import *
 
 
@@ -115,5 +116,23 @@ class ResNet(nn.Module):
             self.in_planes = planes * block.expansion
         return nn.Sequential(*layers)
 
-    # def forward(self, x):
-    #     out, _ = torch.broadcast_tensors()
+    def forward(self, x):
+        out, _ = torch.broadcast_tensors(x, torch.zeros((self.nb_steps,) + x.shape))
+        out = self.conv0(out)
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.layer4(out)
+        out = self.avg_pool(out)
+        out = out.view(out.shape[0], out.shape[1], -1)
+        out = self.classifier(out)
+        return out
+
+
+if __name__ == '__main__':
+    with open('../Resources/EuroSAT_train_set.pkl', 'rb') as f:
+        train_set = pickle.load(f)
+    with open('../Resources/EuroSAT_test_set.pkl', 'rb') as f:
+        test_set = pickle.load(f)
+
+    print(train_set[0])
