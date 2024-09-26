@@ -105,7 +105,7 @@ class ResNet(nn.Module):
         self.avg_pool = tdLayer(nn.AdaptiveAvgPool2d((1, 1)), nb_steps=self.nb_steps)
         self.classifier = nn.Sequential(
             tdLayer(nn.Linear(512 * block.expansion, num_classes), nb_steps=self.nb_steps),
-            ReadOut()
+            # ReadOut()
         )
 
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -117,15 +117,26 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        # print(x.shape)
         out, _ = torch.broadcast_tensors(x, torch.zeros((self.nb_steps,) + x.shape))
+        # print(out.shape)
         out = self.conv0(out)
+        # print(out.shape)
         out = self.layer1(out)
+        # print(out.shape)
         out = self.layer2(out)
+        # print(out.shape)
         out = self.layer3(out)
+        # print(out.shape)
         out = self.layer4(out)
+        # print(out.shape)
         out = self.avg_pool(out)
+        # print(out.shape)
         out = out.view(out.shape[0], out.shape[1], -1)
+        # print(out.shape)
         out = self.classifier(out)
+        # print(out.shape)
+
         return out
 
 

@@ -105,7 +105,7 @@ class ReadOut(nn.Module):
     def forward(self, x):
         trace = x
         if 'max' in self.mode:
-            out, _ = torch.max(trace, axis=0)
+            out, _ = torch.max(trace, dim=0)
         elif 'avg' in self.mode:
-            out = torch.max(trace, axis=0)
+            out = torch.mean(trace, dim=0)
         return out
