@@ -6,9 +6,10 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset
 from torchvision import datasets, transforms, models
+from torchvision.models.resnet import BasicBlock
 from Spiking_Models.activation import NoisySpike, InvSigmoid, InvRectangle
 from Spiking_Models.neuron import LIFNeuron
-from Spiking_Models.resnet import ResNet, BasicBlock, Bottleneck
+from Spiking_Models.resnet import ResNet, SpikingBasicBlock, SpikingBottleneck, SmallResNet, ArtificialSmallResnet
 
 
 class MultiStepNoisyRateScheduler:
@@ -70,7 +71,8 @@ def run_training(epoch, train_loader, optimizer, model, evaluator, args=None, en
             optimizer.zero_grad()
 
         output = model(data)
-        loss = TET_loss(output, target, evaluator, args.means, args.lamb)
+        # loss = TET_loss(output, target, evaluator, args.means, args.lamb)
+        loss = evaluator(output, target)
         loss.backward()
         if isinstance(optimizer, list):
             for optim in optimizer:
@@ -78,7 +80,8 @@ def run_training(epoch, train_loader, optimizer, model, evaluator, args=None, en
         else:
             optimizer.step()
 
-        predict = torch.argmax(output.mean(0), dim=1)
+        # predict = torch.argmax(output.mean(0), dim=1)
+        predict = torch.argmax(output, dim=1)
         loss_record.append(loss.detach().cpu())
         predict_tot.append(predict)
         label_tot.append(target)
@@ -107,8 +110,8 @@ def run_test(test_loader, model, evaluator, args=None, encoder=None):
         for idx, (data, target) in enumerate(test_loader):
             data, target = data.to(args.device), target.to(args.device)
             target = target.view(-1)
-            if encoder is not None:
-                data = encoder(data)
+            # if encoder is not None:
+            #     data = encoder(data)
             output = model(data)
             if isinstance(output, dict):
                 for t in output.keys():
@@ -120,8 +123,10 @@ def run_test(test_loader, model, evaluator, args=None, encoder=None):
             else:
                 if key not in predict_tot.keys():
                     predict_tot[key] = []
-                loss = TET_loss(output, target, evaluator, args.means, args.lamb)
-                predict = torch.argmax(output.mean(0), dim=1)
+                # loss = TET_loss(output, target, evaluator, args.means, args.lamb)
+                loss = evaluator(output, target)
+                # predict = torch.argmax(output.mean(0), dim=1)
+                predict = torch.argmax(output, dim=1)
                 predict_tot[key].append(predict)
             loss_record.append(loss)
             label_tot.append(target)
@@ -180,40 +185,63 @@ if __name__ == '__main__':
     test_loader = DataLoader(dataset=test_set, batch_size=args.test_batch_size, shuffle=False, pin_memory=True,
                              num_workers=args.num_workers)
 
-    decay = wrap_decay(args.decay)
-    thresh = args.thresh
-    args.alpha = 1 / args.alpha
+    model_flag = 'snn'
+    if model_flag == 'snn':
+        decay = nn.Parameter(wrap_decay(args.decay))
+        thresh = args.thresh
+        args.alpha = 1 / args.alpha
 
-    if args.act == 'mns_rec':
-        inv_sg = InvRectangle(alpha=args.alpha, learnable=args.train_width, granularity=args.granularity)
-    elif args.act == 'mns_sig':
-        inv_sg = InvSigmoid(alpha=args.alpha, learnable=args.train_width)
+        if args.act == 'mns_rec':
+            inv_sg= InvRectangle(alpha=args.alpha, learnable=args.train_width, granularity=args.granularity)
+        elif args.act == 'mns_sig':
+            inv_sg = InvSigmoid(alpha=args.alpha, learnable=args.train_width)
 
-    kwargs_spikes = {'nb_steps': args.T, 'vreset': 0, 'threshold': thresh,
-                     'spike_fn': NoisySpike(p=args.p, inv_sg=inv_sg, spike=True), 'decay': decay}
+        kwargs_spikes = {'nb_steps': args.T, 'vreset': 0, 'threshold': thresh,
+                         'spike_fn': NoisySpike(p=args.p, inv_sg=inv_sg, spike=True), 'decay': decay}
 
-    model = ResNet(BasicBlock, [2, 2, 2, 2], num_class, bn_type=args.bn_type, **kwargs_spikes).to(device, dtype)
-    params = split_params(model)
-    spiking_params = [{'params': params[0], 'weight_decay': 0}]
-    params = [{'params': params[1], 'weight_decay': args.wd}, {'params': params[2], 'weight_decay': 0}]
+        # model = ResNet(BasicBlock, [2, 2, 2, 2], num_class, bn_type=args.bn_type, **kwargs_spikes).to(device, dtype)
+        model = SmallResNet(SpikingBasicBlock, [1, 2, 2, 2], num_class, bn_type=args.bn_type, **kwargs_spikes).to(
+            device, dtype)
+        params = split_params(model)
+        spiking_params = [{'params': params[0], 'weight_decay': 0}]
+        params = [{'params': params[1], 'weight_decay': args.wd}, {'params': params[2], 'weight_decay': 0}]
 
-    if args.optim.lower() == 'sgdm':
-        optimizer = optim.SGD(params, lr=args.lr, momentum=0.9)
-    elif args.optim.lower() == 'adam':
-        optimizer = optim.Adam(params, lr=args.lr, amsgrad=False)
-    width_optim = optim.Adam(spiking_params, lr=args.width_lr)
-    evaluator = torch.nn.CrossEntropyLoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=0, T_max=args.num_epoch)
-    rate_scheduler = MultiStepNoisyRateScheduler(init_p=args.p, reduce_ratio=args.gamma, milestones=args.ns_milestone,
-                                                 num_epoch=args.num_epoch, start_epoch=0)
+        if args.optim.lower() == 'sgdm':
+            optimizer = optim.SGD(params, lr=args.lr, momentum=0.9)
+        elif args.optim.lower() == 'adam':
+            optimizer = optim.Adam(params, lr=args.lr, amsgrad=False)
+        width_optim = optim.Adam(spiking_params, lr=args.width_lr)
+        evaluator = torch.nn.CrossEntropyLoss()
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=0, T_max=args.num_epoch)
+        rate_scheduler = MultiStepNoisyRateScheduler(init_p=args.p, reduce_ratio=args.gamma,
+                                                     milestones=args.ns_milestone,
+                                                     num_epoch=args.num_epoch, start_epoch=0)
 
-    for epoch in tqdm(range(args.num_epoch)):
-        train_acc, train_loss = run_training(epoch, train_loader, [optimizer, width_optim], model, evaluator, args=args)
-        scheduler.step()
-        rate_scheduler(epoch, model)
-        test_acc, test_loss = run_test(test_loader, model, evaluator, args=args)
-        print(
-            'Epoch {}: train loss {:.5f}, train acc {:.5f}, test loss {:.5f}, test acc {:.5f}'.format(epoch, train_loss,
-                                                                                                      train_acc,
-                                                                                                      test_loss,
-                                                                                                      test_acc))
+        for epoch in tqdm(range(args.num_epoch)):
+            train_acc, train_loss = run_training(epoch, train_loader, [optimizer, width_optim], model, evaluator,
+                                                 args=args)
+            scheduler.step()
+            rate_scheduler(epoch, model)
+            test_acc, test_loss = run_test(test_loader, model, evaluator, args=args)
+            print(
+                'Epoch {}: train loss {:.5f}, train acc {:.5f}, test loss {:.5f}, test acc {:.5f}'.format(epoch,
+                                                                                                          train_loss,
+                                                                                                          train_acc,
+                                                                                                          test_loss,
+                                                                                                          test_acc))
+    elif model_flag == 'ann':
+        model = ArtificialSmallResnet(BasicBlock, [1, 2, 2, 2], num_class).to(device, dtype)
+        optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+        evaluator = torch.nn.CrossEntropyLoss()
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=0, T_max=args.num_epoch)
+        for epoch in tqdm(range(args.num_epoch)):
+            train_acc, train_loss = run_training(epoch, train_loader, optimizer, model, evaluator,
+                                                 args=args)
+            scheduler.step()
+            test_acc, test_loss = run_test(test_loader, model, evaluator, args=args)
+            print(
+                'Epoch {}: train loss {:.5f}, train acc {:.5f}, test loss {:.5f}, test acc {:.5f}'.format(epoch,
+                                                                                                          train_loss,
+                                                                                                          train_acc,
+                                                                                                          test_loss,
+                                                                                                          test_acc))

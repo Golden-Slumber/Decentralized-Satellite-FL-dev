@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import pickle
 from Spiking_Models.layer import *
+from torchvision.models.resnet import BasicBlock
 
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -19,11 +20,11 @@ def warpBN(channel, bn_type, nb_steps):
         return nn.Identity()
 
 
-class BasicBlock(nn.Module):
+class SpikingBasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, in_planes, planes, stride=1, bn_type='', expand=1, **kwargs_spikes):
-        super(BasicBlock, self).__init__()
+        super(SpikingBasicBlock, self).__init__()
         self.kwargs_spikes = kwargs_spikes
         self.nb_steps = kwargs_spikes['nb_steps']
         self.expand = expand
@@ -50,11 +51,11 @@ class BasicBlock(nn.Module):
         return out
 
 
-class Bottleneck(nn.Module):
+class SpikingBottleneck(nn.Module):
     expansion = 4
 
     def __init__(self, in_planes, planes, stride=1, bn_type='', **kwargs_spikes):
-        super(Bottleneck, self).__init__()
+        super(SpikingBottleneck, self).__init__()
         self.kwargs_spikes = kwargs_spikes
         self.nb_steps = kwargs_spikes['nb_steps']
         self.conv1 = tdLayer(nn.Conv2d(in_planes, planes, kernel_size=1, bias=False), self.nb_steps)
@@ -105,7 +106,7 @@ class ResNet(nn.Module):
         self.avg_pool = tdLayer(nn.AdaptiveAvgPool2d((1, 1)), nb_steps=self.nb_steps)
         self.classifier = nn.Sequential(
             tdLayer(nn.Linear(512 * block.expansion, num_classes), nb_steps=self.nb_steps),
-            # ReadOut()
+            ReadOut()
         )
 
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -139,6 +140,89 @@ class ResNet(nn.Module):
 
         return out
 
+
+class SmallResNet(nn.Module):
+    def __init__(self, block, num_block_layers, num_classes=10, in_channel=3, bn_type='', **kwargs_spikes):
+        super(SmallResNet, self).__init__()
+        self.in_planes = 16
+        self.bn_type = bn_type
+        self.kwargs_spikes = kwargs_spikes
+        self.nb_steps = kwargs_spikes['nb_steps']
+        self.conv0 = nn.Sequential(
+            tdLayer(nn.Conv2d(in_channel, self.in_planes, kernel_size=3, padding=1, stride=1, bias=False),
+                    nb_steps=self.nb_steps),
+            warpBN(self.in_planes, bn_type, self.nb_steps),
+            LIFLayer(**kwargs_spikes)
+        )
+        self.layer1 = self._make_layer(block, 16, num_block_layers[0], stride=1)
+        self.layer2 = self._make_layer(block, 32, num_block_layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 64, num_block_layers[2], stride=2)
+        # self.layer4 = self._make_layer(block, 512, num_block_layers[3], stride=2)
+
+        self.avg_pool = tdLayer(nn.AdaptiveAvgPool2d((1, 1)), nb_steps=self.nb_steps)
+        self.classifier = nn.Sequential(
+            tdLayer(nn.Linear(64 * block.expansion, num_classes), nb_steps=self.nb_steps),
+            ReadOut()
+        )
+
+    def _make_layer(self, block, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            layers.append(block(self.in_planes, planes, stride, self.bn_type, **self.kwargs_spikes))
+            self.in_planes = planes * block.expansion
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out, _ = torch.broadcast_tensors(x, torch.zeros((self.nb_steps,) + x.shape))
+        out = self.conv0(out)
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.avg_pool(out)
+        out = out.view(out.shape[0], out.shape[1], -1)
+        out = self.classifier(out)
+        return out
+
+
+class ArtificialSmallResnet(nn.Module):
+    def __init__(self, block, num_block_layers, num_classes=10, in_channel=3):
+        super(ArtificialSmallResnet, self).__init__()
+        self.in_planes = 16
+        self.block = block
+        self.conv0 = nn.Sequential(
+            nn.Conv2d(in_channel, self.in_planes, kernel_size=3, padding=1, stride=1, bias=False),
+            nn.BatchNorm2d(self.in_planes),
+            nn.ReLU(inplace=True))
+
+        self.layer1 = self._make_layer(16, num_block_layers[0], stride=1)
+        self.layer2 = self._make_layer(32, num_block_layers[1], stride=2)
+        self.layer3 = self._make_layer(64, num_block_layers[2], stride=2)
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.classifier = nn.Linear(64, num_classes)
+
+    def _make_layer(self, planes, num_blocks, stride):
+        strides = [stride] + [1] * (num_blocks - 1)
+        layers = []
+        for stride in strides:
+            if stride != 1:
+                downsample = nn.Sequential(nn.Conv2d(self.in_planes, planes, kernel_size=1, stride=stride, bias=False),
+                                       nn.BatchNorm2d(planes * self.block.expansion))
+                layers.append(self.block(self.in_planes, planes, stride, downsample))
+            else:
+                layers.append(self.block(self.in_planes, planes, stride))
+            self.in_planes = planes
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        out = self.conv0(x)
+        out = self.layer1(out)
+        out = self.layer2(out)
+        out = self.layer3(out)
+        out = self.avg_pool(out)
+        out = out.view(x.size(0), -1)
+        out = self.classifier(out)
+        return out
 
 if __name__ == '__main__':
     with open('../Resources/EuroSAT_train_set.pkl', 'rb') as f:
