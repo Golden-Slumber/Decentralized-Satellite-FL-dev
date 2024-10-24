@@ -1,6 +1,8 @@
 import os
 import random
 import sys
+
+import math
 import numpy
 import argparse
 import torch
@@ -12,6 +14,9 @@ from torch.utils.data import DataLoader, Dataset
 from copy import deepcopy
 from sklearn.model_selection import train_test_split
 import pickle
+from Spiking_Models.activation import NoisySpike, InvSigmoid, InvRectangle
+from Spiking_Models.neuron import LIFNeuron
+from Spiking_Models.resnet import SpikingBasicBlock, SmallResNet, ArtificialSmallResnet
 
 home_dir = './'
 sys.path.append(home_dir)
@@ -120,5 +125,108 @@ class EuroSatTask(object):
         self.training_loss = loss
         return self.training_loss
 
+    def model_update(self, model_parameters):
+        self.model.load_state_dict(model_parameters)
+
+
+def wrap_decay(decay):
+    import math
+    return torch.tensor(math.log(decay / (1 - decay)))
+
+
+def split_params(model, paras=([], [], [])):
+    for n, module in model._modules.items():
+        if isinstance(module, LIFNeuron) and hasattr(module, "thresh"):
+            for name, para in module.named_parameters():
+                paras[0].append(para)
+        elif 'bathnorm' in module.__class__.__name__.lower():
+            for name, para in module.named_parameters():
+                paras[2].append(para)
+        elif isinstance(module, torch.nn.Linear) or isinstance(module, torch.nn.modules.conv._ConvNd):
+            paras[1].append(module.weight)
+            if module.bias is not None:
+                paras[2].append(module.bias)
+        elif len(list(module.children())) > 0:
+            paras = split_params(module, paras)
+        elif module.parameters() is not None:
+            for name, para in module.named_parameters():
+                paras[1].append(para)
+    return paras
+
+
+class EuroSatSNNTask(object):
+    def __init__(self, args, dataset, model):
+        self.args = args
+        self.dataset = dataset
+        self.dtype = torch.float
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        decay = nn.Parameter(wrap_decay(self.args.decay))
+        thresh = self.args.thresh
+        alpha = 1 / self.args.alpha
+        if self.args.act == 'mns_rec':
+            inv_sg = InvRectangle(alpha=alpha, learnable=self.args.train_width, granularity=self.args.granularity)
+        elif self.args.act == 'mns_sig':
+            inv_sg = InvSigmoid(alpha=alpha, learnable=self.args.train_width)
+        kwargs_spikes = {'nb_steps': args.T, 'vreset': 0, 'threshold': thresh,
+                         'spike_fn': NoisySpike(p=self.args.p, inv_sg=inv_sg, spike=True), 'decay': decay}
+
+        self.model = SmallResNet(SpikingBasicBlock, [1, 2, 2, 2], num_classes=10, bn_type=self.args.bn_type,
+                                 **kwargs_spikes).to(self.device, self.dtype)
+        self.model_update(model)
+
+        self.epoch = 0
+        self.lr = self.args.lr
+        self.criterion = torch.nn.CrossEntropyLoss()
+        self.train_loader = DataLoader(self.dataset, batch_size=self.args.train_batch_size, shuffle=True,
+                                       pin_memory=True, num_workers=self.args.num_workers)
+
+        params = split_params(self.model)
+        spiking_params = [{'params': params[0], 'weight_decay': 0}]
+        params = [{'params': params[1], 'weight_decay': self.args.wd}, {'params': params[2], 'weight_decay': 0}]
+        self.optimizer = optim.SGD(params, lr=self.lr, momentum=0.9)
+        self.width_optim = optim.Adam(spiking_params, lr=self.args.width_lr)
+
+    def local_training(self):
+        self.lr = self.args.lr * (1 + math.cos(math.pi * self.epoch / self.args.num_epoch)) / 2
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = self.lr
+
+        self.model.train()
+        for local_iter in range(self.args.local_iters):
+            loss_tot = []
+            predict_tot = []
+            label_tot = []
+
+            for idx, (data, target) in enumerate(self.train_loader):
+                data, target = data.to(self.device), target.to(self.device)
+                target = target.view(-1)
+
+                self.optimizer.zero_grad()
+                self.width_optim.zero_grad()
+
+                output = self.model(data)
+                loss = self.criterion(output, target)
+                loss.backward()
+                self.optimizer.step()
+                self.width_optim.step()
+
+                predict = torch.argmax(output, dim=1)
+                loss_tot.append(loss.detach().cpu())
+                predict_tot.append(predict)
+                label_tot.append(target)
+            predict_tot = torch.cat(predict_tot)
+            label_tot = torch.cat(label_tot)
+            local_train_acc = torch.mean((predict_tot == label_tot).float())
+            local_train_loss = torch.tensor(loss_tot).sum() / len(label_tot)
+            print('\t Epoch [{}/{}], Local Iter [{}/{}] Local Loss: {:.5f}, Local Acc: {:.5f}'.format(self.epoch + 1,
+                                                                                                      self.args.num_epoch,
+                                                                                                      local_iter + 1,
+                                                                                                      self.args.local_iters,
+                                                                                                      local_train_loss,
+                                                                                                      local_train_acc))
+
+    def test(self):
+        
     def model_update(self, model_parameters):
         self.model.load_state_dict(model_parameters)

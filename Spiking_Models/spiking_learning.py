@@ -1,3 +1,4 @@
+import math
 import time
 import pickle
 import torch
@@ -192,7 +193,7 @@ if __name__ == '__main__':
         args.alpha = 1 / args.alpha
 
         if args.act == 'mns_rec':
-            inv_sg= InvRectangle(alpha=args.alpha, learnable=args.train_width, granularity=args.granularity)
+            inv_sg = InvRectangle(alpha=args.alpha, learnable=args.train_width, granularity=args.granularity)
         elif args.act == 'mns_sig':
             inv_sg = InvSigmoid(alpha=args.alpha, learnable=args.train_width)
 
@@ -212,15 +213,27 @@ if __name__ == '__main__':
             optimizer = optim.Adam(params, lr=args.lr, amsgrad=False)
         width_optim = optim.Adam(spiking_params, lr=args.width_lr)
         evaluator = torch.nn.CrossEntropyLoss()
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=0, T_max=args.num_epoch)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=0, T_max=args.num_epoch)
         rate_scheduler = MultiStepNoisyRateScheduler(init_p=args.p, reduce_ratio=args.gamma,
                                                      milestones=args.ns_milestone,
                                                      num_epoch=args.num_epoch, start_epoch=0)
 
+        cur_lr = args.lr
         for epoch in tqdm(range(args.num_epoch)):
+            # if args.optim.lower() == 'sgdm':
+            #     optimizer = optim.SGD(params, lr=cur_lr, momentum=0.9)
+            # elif args.optim.lower() == 'adam':
+            #     optimizer = optim.Adam(params, lr=cur_lr, amsgrad=False)
+            for param_group in optimizer.param_groups:
+                param_group['lr'] = cur_lr
+            # cur_lr = cur_lr * (1 + math.cos(math.pi * (epoch + 1) / args.num_epoch)) / (
+            #             1 + math.cos(math.pi * epoch / args.num_epoch))
+
+            cur_lr = args.lr * (1 + math.cos(math.pi * epoch / args.num_epoch)) / 2
+
             train_acc, train_loss = run_training(epoch, train_loader, [optimizer, width_optim], model, evaluator,
                                                  args=args)
-            scheduler.step()
+            # scheduler.step()
             rate_scheduler(epoch, model)
             test_acc, test_loss = run_test(test_loader, model, evaluator, args=args)
             print(
@@ -231,13 +244,19 @@ if __name__ == '__main__':
                                                                                                           test_acc))
     elif model_flag == 'ann':
         model = ArtificialSmallResnet(BasicBlock, [1, 2, 2, 2], num_class).to(device, dtype)
-        optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
+        # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=0.9)
         evaluator = torch.nn.CrossEntropyLoss()
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=0, T_max=args.num_epoch)
+        # scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, eta_min=0, T_max=args.num_epoch)
+        cur_lr = args.lr
         for epoch in tqdm(range(args.num_epoch)):
+            optimizer = optim.SGD(model.parameters(), lr=cur_lr, momentum=0.9)
+            cur_lr = cur_lr * (1 + math.cos(math.pi * (epoch + 1) / args.num_epoch)) / (
+                    1 + math.cos(math.pi * epoch / args.num_epoch))
+
+
             train_acc, train_loss = run_training(epoch, train_loader, optimizer, model, evaluator,
                                                  args=args)
-            scheduler.step()
+            # scheduler.step()
             test_acc, test_loss = run_test(test_loader, model, evaluator, args=args)
             print(
                 'Epoch {}: train loss {:.5f}, train acc {:.5f}, test loss {:.5f}, test acc {:.5f}'.format(epoch,
