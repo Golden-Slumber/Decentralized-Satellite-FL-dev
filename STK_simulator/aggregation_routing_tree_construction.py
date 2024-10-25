@@ -19,8 +19,8 @@ def floyd_shortest_path(connectivity_matrix):
                         path_matrix[i][k] + path_matrix[k][j] < path_matrix[i][j] or path_matrix[i][j] == -1):
                     path_matrix[i][j] = path_matrix[i][k] + path_matrix[k][j]
                     routing_matrix[i][j] = k + 1
-    print(path_matrix)
-    print(routing_matrix)
+    # print(path_matrix)
+    # print(routing_matrix)
     return path_matrix, routing_matrix
 
 

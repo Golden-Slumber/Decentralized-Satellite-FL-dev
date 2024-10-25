@@ -178,14 +178,17 @@ class EuroSatSNNTask(object):
         self.epoch = 0
         self.lr = self.args.lr
         self.criterion = torch.nn.CrossEntropyLoss()
-        self.train_loader = DataLoader(self.dataset, batch_size=self.args.train_batch_size, shuffle=True,
-                                       pin_memory=True, num_workers=self.args.num_workers)
+        self.data_loader = DataLoader(self.dataset, batch_size=self.args.train_batch_size, shuffle=True,
+                                      pin_memory=True, num_workers=self.args.num_workers)
 
         params = split_params(self.model)
         spiking_params = [{'params': params[0], 'weight_decay': 0}]
         params = [{'params': params[1], 'weight_decay': self.args.wd}, {'params': params[2], 'weight_decay': 0}]
         self.optimizer = optim.SGD(params, lr=self.lr, momentum=0.9)
         self.width_optim = optim.Adam(spiking_params, lr=self.args.width_lr)
+
+        self.local_train_loss = 0.0
+        self.local_train_acc = 0.0
 
     def local_training(self):
         self.lr = self.args.lr * (1 + math.cos(math.pi * self.epoch / self.args.num_epoch)) / 2
@@ -198,7 +201,7 @@ class EuroSatSNNTask(object):
             predict_tot = []
             label_tot = []
 
-            for idx, (data, target) in enumerate(self.train_loader):
+            for idx, (data, target) in enumerate(self.data_loader):
                 data, target = data.to(self.device), target.to(self.device)
                 target = target.view(-1)
 
@@ -226,7 +229,41 @@ class EuroSatSNNTask(object):
                                                                                                       local_train_loss,
                                                                                                       local_train_acc))
 
-    def test(self):
-        
+    def local_test(self):
+        self.model.eval()
+        with torch.no_grad():
+            predict_tot = []
+            label_tot = []
+            loss_tot = []
+
+            for idx, (data, target) in enumerate(self.data_loader):
+                data, target = data.to(self.device), target.to(self.device)
+                target = target.view(-1)
+                output = self.model(data)
+
+                loss = self.criterion(output, target)
+                predict = torch.argmax(output, dim=1)
+                predict_tot.append(predict)
+                loss_tot.append(loss)
+                label_tot.append(target)
+
+            label_tot = torch.cat(label_tot)
+            local_test_loss = torch.tensor(loss_tot).sum() / len(label_tot)
+            predict_tot = torch.cat(predict_tot)
+            local_test_acc = torch.mean((predict_tot == label_tot).float())
+
+            return local_test_loss, local_test_acc
+
+    def set_dataset(self, dataset):
+        self.dataset = dataset
+        self.data_loader = DataLoader(self.dataset, batch_size=self.args.train_batch_size, shuffle=True,
+                                      pin_memory=True, num_workers=self.args.num_workers)
+
+    def get_model(self):
+        return self.model.state_dict()
+
+    def get_training_stats(self):
+        return self.local_train_loss, self.local_train_acc
+
     def model_update(self, model_parameters):
         self.model.load_state_dict(model_parameters)

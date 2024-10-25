@@ -5,7 +5,7 @@ import numpy
 from copy import deepcopy
 import torch
 from torch.utils.data import DataLoader, Dataset, random_split, Subset
-from learning_task import EuroSatTask
+from learning_task import EuroSatTask, EuroSatSNNTask
 from utils import Dirichlet_non_iid_distribution
 from constants import *
 
@@ -78,7 +78,8 @@ class Plane(object):
             # total_sample_idxs = list(set(total_sample_idxs) - local_sample_idx)
 
             # local_data, local_label = plane_dataset[list(local_sample_idx)]
-            new_learning_task = EuroSatTask(args, self.satellite_dataset_list[satellite_idx], init_model)
+            # new_learning_task = EuroSatTask(args, self.satellite_dataset_list[satellite_idx], init_model)
+            new_learning_task = EuroSatSNNTask(args, self.satellite_dataset_list[satellite_idx], init_model)
             new_satellite = Satellite(satellite_idx, self.plane_idx, new_learning_task)
             self.satellite_list.append(new_satellite)
 
@@ -158,8 +159,9 @@ class Constellation(object):
         self.convergence_error = numpy.zeros(self.args.iterations)
         self.consensus_error = numpy.zeros(self.args.iterations)
         self.test_accuracy = numpy.zeros(self.args.iterations)
-        self.test_task = EuroSatTask(args, test_dataset, init_model)
-        self.training_task = EuroSatTask(args, constellation_dataset, init_model)
+        # self.test_task = EuroSatTask(args, test_dataset, init_model)
+        # self.training_task = EuroSatTask(args, constellation_dataset, init_model)
+        self.learning_task = EuroSatSNNTask(args, constellation_dataset, init_model)
 
         self.plane_list = []
         # generator = torch.Generator().manual_seed(42)
@@ -201,10 +203,22 @@ class Constellation(object):
 
         if aggregation_scheme == GOSSIP:
             # generate mixing matrix
-            average_matrix = numpy.ones((self.num_planes, self.num_planes))
+            # average_matrix = numpy.ones((self.num_planes, self.num_planes))
+            # for p in range(self.num_planes):
+            #     num_neighbors = numpy.sum(self.connectivity_matrix[p])
+            #     average_matrix[p] = self.connectivity_matrix[p] / num_neighbors
+            average_matrix = numpy.zeros((self.num_planes, self.num_planes))
             for p in range(self.num_planes):
-                num_neighbors = numpy.sum(self.connectivity_matrix[p])
-                average_matrix[p] = self.connectivity_matrix[p] / num_neighbors
+                if p == 0:
+                    average_matrix[p] = 1 / 2
+                    average_matrix[p + 1] = 1 / 2
+                elif p == self.num_planes - 1:
+                    average_matrix[p] = 1 / 2
+                    average_matrix[p - 1] = 1 / 2
+                else:
+                    average_matrix[p] = 1 / 3
+                    average_matrix[p - 1] = 1 / 3
+                    average_matrix[p + 1] = 1 / 3
 
             # print(average_matrix)
             for p in range(self.num_planes):
@@ -252,6 +266,25 @@ class Constellation(object):
             self.global_model[key] /= self.num_planes
             for i in range(1, self.num_planes):
                 self.global_model[key] += deepcopy(self.plane_list[i].get_intra_plane_model())[key] / self.num_planes
+
+    def save_metric_v3(self, t):
+        loss = 0.0
+        acc = 0.0
+        self.learning_task.set_dataset(self.constellation_dataset)
+        for p in range(self.num_planes):
+            plane_model = self.plane_list[p].get_intra_plane_model()
+            self.learning_task.model_update(plane_model)
+            plane_loss, _ = self.learning_task.local_test()
+            loss += plane_loss / self.num_planes
+        self.learning_task.set_dataset(self.test_dataset)
+        for p in range(self.num_planes):
+            plane_model = self.plane_list[p].get_intra_plane_model()
+            self.learning_task.model_update(plane_model)
+            _, plane_acc = self.learning_task.local_test()
+            acc += plane_acc / self.num_planes
+        self.convergence_error[t] = loss
+        self.test_accuracy[t] = acc
+        print('global round : {} \t Loss: {:.6f} \t Accuracy: {:.3f}%'.format(t, loss, 100. * acc))
 
     def save_metric_v2(self, t):
         loss = 0.0
