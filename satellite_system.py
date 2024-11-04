@@ -156,9 +156,9 @@ class Constellation(object):
         self.global_model = deepcopy(init_model)
 
         # performance metrics
-        self.convergence_error = numpy.zeros(self.args.iterations)
-        self.consensus_error = numpy.zeros(self.args.iterations)
-        self.test_accuracy = numpy.zeros(self.args.iterations)
+        self.convergence_error = numpy.zeros(self.args.num_epoch)
+        self.consensus_error = numpy.zeros(self.args.num_epoch)
+        self.test_accuracy = numpy.zeros(self.args.num_epoch)
         # self.test_task = EuroSatTask(args, test_dataset, init_model)
         # self.training_task = EuroSatTask(args, constellation_dataset, init_model)
         self.learning_task = EuroSatSNNTask(args, constellation_dataset, init_model)
@@ -172,7 +172,7 @@ class Constellation(object):
         for i in range(len(constellation_dataset)):
             _, target = constellation_dataset[i]
             targets.append(target.item())
-        indices_per_plane = Dirichlet_non_iid_distribution(targets, self.args.alpha, num_planes,
+        indices_per_plane = Dirichlet_non_iid_distribution(targets, self.args.plane_alpha, num_planes,
                                                            n_auxi_devices=10, seed=0)
         indices_per_plane = numpy.array_split(numpy.concatenate(indices_per_plane), num_planes)
         self.plane_dataset_list = [Subset(constellation_dataset, indices) for indices in indices_per_plane]

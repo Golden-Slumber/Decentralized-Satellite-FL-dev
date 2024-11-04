@@ -10,7 +10,7 @@ from utils import *
 from Spiking_Models.activation import NoisySpike, InvSigmoid, InvRectangle
 from Spiking_Models.neuron import LIFNeuron
 from Spiking_Models.resnet import SpikingBasicBlock, SmallResNet, ArtificialSmallResnet
-from STK_simulator.constants import WalkerStarConnectivity
+from STK_simulator.constellation_config import WalkerStarConnectivity
 from STK_simulator.aggregation_routing_tree_construction import *
 
 home_dir = './'
@@ -79,10 +79,10 @@ if __name__ == '__main__':
 
     repeat = 1
     legends = ['RelaySum', 'Gossip', 'All-Reduce']
-    acc = numpy.zeros((3, repeat, args.iterations))
-    loss = numpy.zeros((3, repeat, args.iterations))
-    saved_acc = numpy.zeros((3, args.iterations))
-    saved_loss = numpy.zeros((3, args.iterations))
+    acc = numpy.zeros((3, repeat, args.num_epoch))
+    loss = numpy.zeros((3, repeat, args.num_epoch))
+    saved_acc = numpy.zeros((3, args.num_epoch))
+    saved_loss = numpy.zeros((3, args.num_epoch))
 
     for r in range(repeat):
         print('RelaySum Training')
@@ -105,10 +105,10 @@ if __name__ == '__main__':
                     average_matrix[p, q] = 1
         print(average_matrix)
         constellation.set_connectivity_matrix(average_matrix)
-        for t in range(args.iterations):
+        for t in range(args.num_epoch):
             constellation.constellation_training(RELAYSUM)
             constellation.save_metric_v3(t)
-        for t in range(args.iterations):
+        for t in range(args.num_epoch):
             acc[0, r, t] = constellation.test_accuracy[t]
             loss[0, r, t] = constellation.convergence_error[t]
             saved_acc[0, t] = constellation.test_accuracy[t]
@@ -117,11 +117,11 @@ if __name__ == '__main__':
         constellation.reset_constellation(init_model)
         print('Gossip Training')
         # constellation.set_connectivity_matrix(connectivity_matrix)
-        for t in range(args.iterations):
+        for t in range(args.num_epoch):
             # connectivity_matrix = fixed_binary_tree_topology(num_planes)
             constellation.constellation_training(GOSSIP)
             constellation.save_metric_v3(t)
-        for t in range(args.iterations):
+        for t in range(args.num_epoch):
             acc[1, r, t] = constellation.test_accuracy[t]
             loss[1, r, t] = constellation.convergence_error[t]
             saved_acc[1, t] = constellation.test_accuracy[t]
@@ -129,12 +129,12 @@ if __name__ == '__main__':
 
         constellation.reset_constellation(init_model)
         print('AllReduce Training')
-        for t in range(args.iterations):
+        for t in range(args.num_epoch):
             # connectivity_matrix = fixed_binary_tree_topology(num_planes)
             # constellation.set_connectivity_matrix(connectivity_matrix)
             constellation.constellation_training(ALLREDUCE)
             constellation.save_metric_v3(t)
-        for t in range(args.iterations):
+        for t in range(args.num_epoch):
             acc[2, r, t] = constellation.test_accuracy[t]
             loss[2, r, t] = constellation.convergence_error[t]
             saved_acc[2, t] = constellation.test_accuracy[t]
