@@ -45,6 +45,7 @@ def matrix_preprocessing(connectivity_matrix):
 
 
 def edge_set_construction(connectivity_matrix):
+    n = len(connectivity_matrix)
     edge_list = []
     for i in range(n):
         for j in range(i + 1, n):
@@ -56,11 +57,12 @@ def edge_set_construction(connectivity_matrix):
 def MDST_construction(connectivity_matrix):
     n = len(connectivity_matrix)
     connectivity_matrix = matrix_preprocessing(connectivity_matrix)
-    print(connectivity_matrix)
+    # print(connectivity_matrix)
     distance_matrix, _ = floyd_shortest_path(connectivity_matrix)
     rk_matrix = [[0 for i in range(n)] for j in range(n)]
     edge_list = edge_set_construction(connectivity_matrix)
-    print(edge_list)
+    # print(distance_matrix)
+    # print(edge_list)
 
     for i in range(n):
         for j in range(n):
@@ -69,9 +71,9 @@ def MDST_construction(connectivity_matrix):
             min_dis_idx = rk_matrix[i][j]
             for k in range(j + 1, n):
                 if distance_matrix[i][rk_matrix[i][k]] < distance_matrix[i][min_dis_idx]:
-                    rk_matrix[i][j] = k
+                    rk_matrix[i][j] = rk_matrix[i][k]
                     rk_matrix[i][k] = min_dis_idx
-                    min_dis_idx = k
+                    min_dis_idx = rk_matrix[i][j]
 
     # in case the center is on some point
     center_p = 0
@@ -96,13 +98,14 @@ def MDST_construction(connectivity_matrix):
                 p = n - i
 
     shortest_path_tree = [[0 for i in range(n)] for j in range(n)]
-    average_matrix = [[0 for i in range(n)] for j in range(n)]
+    # average_matrix = [[0 for i in range(n)] for j in range(n)]
+    average_matrix = numpy.zeros((n, n))
     for i in range(n):
         for j in range(n):
             if i != j:
                 shortest_path_tree[i][j] = 1e10
             else:
-                average_matrix[i][j] = 1
+                average_matrix[i, j] = 1
 
     if diameter_p <= diameter_e:
         for i in range(n):
@@ -111,13 +114,15 @@ def MDST_construction(connectivity_matrix):
                 if shortest_path_tree[center_p][u] + w == distance_matrix[center_p][v] and shortest_path_tree[center_p][
                     u] + w < shortest_path_tree[center_p][v]:
                     shortest_path_tree[center_p][v] = shortest_path_tree[center_p][u] + w
-                    average_matrix[u][v] = 1
+                    average_matrix[u, v] = 1
+                    average_matrix[v, u] = 1
                 if shortest_path_tree[center_p][v] + w == distance_matrix[center_p][u] and shortest_path_tree[center_p][
                     v] + w < shortest_path_tree[center_p][u]:
                     shortest_path_tree[center_p][u] = shortest_path_tree[center_p][v] + w
-                    average_matrix[v][u] = 1
+                    average_matrix[v, u] = 1
+                    average_matrix[u, v] = 1
     else:
-        print('flag')
+        # print('flag')
         augmented_connectivity_matrix = [[0 for i in range(n + 1)] for j in range(n + 1)]
         for i in range(n):
             for j in range(n):
@@ -138,26 +143,32 @@ def MDST_construction(connectivity_matrix):
         edge_list.append((n, center_r, dis_r))
         augmented_distance_matrix, _ = floyd_shortest_path(augmented_connectivity_matrix)
         center_p = n
+        average_matrix[center_l, center_r], average_matrix[center_r, center_l] = 1, 1
 
         augmented_shortest_path_tree = [[0 for i in range(n + 1)] for j in range(n + 1)]
-        for i in range(n+1):
-            for j in range(n+1):
+        for i in range(n + 1):
+            for j in range(n + 1):
                 if i != j:
                     augmented_shortest_path_tree[i][j] = 1e10
-        for i in range(n+1):
+        for i in range(n + 1):
             for edge in edge_list:
                 u, v, w = edge[0], edge[1], edge[2]
-                if augmented_shortest_path_tree[center_p][u] + w == augmented_distance_matrix[center_p][v] and augmented_shortest_path_tree[center_p][
-                    u] + w < augmented_shortest_path_tree[center_p][v]:
+                if augmented_shortest_path_tree[center_p][u] + w == augmented_distance_matrix[center_p][v] and \
+                        augmented_shortest_path_tree[center_p][
+                            u] + w < augmented_shortest_path_tree[center_p][v]:
                     augmented_shortest_path_tree[center_p][v] = augmented_shortest_path_tree[center_p][u] + w
                     if u != n and v != n:
-                        average_matrix[u][v] = 1
-                if augmented_shortest_path_tree[center_p][v] + w == augmented_distance_matrix[center_p][u] and augmented_shortest_path_tree[center_p][
-                    v] + w < augmented_shortest_path_tree[center_p][u]:
+                        average_matrix[u, v] = 1
+                        average_matrix[v, u] = 1
+                if augmented_shortest_path_tree[center_p][v] + w == augmented_distance_matrix[center_p][u] and \
+                        augmented_shortest_path_tree[center_p][
+                            v] + w < augmented_shortest_path_tree[center_p][u]:
                     augmented_shortest_path_tree[center_p][u] = augmented_shortest_path_tree[center_p][v] + w
                     if u != n and v != n:
-                        average_matrix[v][u] = 1
+                        average_matrix[v, u] = 1
+                        average_matrix[u, v] = 1
     return average_matrix
+
 
 def simplified_MDST_construction(connectivity_matrix):
     n = len(connectivity_matrix)

@@ -72,6 +72,8 @@ if __name__ == '__main__':
 
     init_model = SmallResNet(SpikingBasicBlock, [1, 2, 2, 2], num_classes=10, bn_type=args.bn_type,
                              **kwargs_spikes).to(device, dtype).state_dict()
+    for key in init_model.keys():
+        print(key)
 
     constellation = Constellation(num_planes, satellites_by_plane, train_set, test_set, datasize_array_by_plane,
                                   init_model, args)
@@ -96,13 +98,14 @@ if __name__ == '__main__':
             for j in range(n):
                 if i != j and connectivity_matrix[i][j] == 0.0:
                     connectivity_matrix[i][j] = -1
-        _, routing_matrix = simplified_MDST_construction(connectivity_matrix)
-        average_matrix = numpy.zeros((num_planes, num_planes))
-        for p in range(num_planes):
-            average_matrix[p, p] = 1
-            for q in range(num_planes):
-                if routing_matrix[p, q] == q + 1:
-                    average_matrix[p, q] = 1
+        # _, routing_matrix = simplified_MDST_construction(connectivity_matrix)
+        # average_matrix = numpy.zeros((num_planes, num_planes))
+        # for p in range(num_planes):
+        #     average_matrix[p, p] = 1
+        #     for q in range(num_planes):
+        #         if routing_matrix[p, q] == q + 1:
+        #             average_matrix[p, q] = 1
+        average_matrix = MDST_construction(connectivity_matrix)
         print(average_matrix)
         constellation.set_connectivity_matrix(average_matrix)
         for t in range(args.num_epoch):
