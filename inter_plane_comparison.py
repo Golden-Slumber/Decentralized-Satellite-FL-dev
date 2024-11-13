@@ -17,7 +17,32 @@ def plot_results(acc, loss, iterations, legends, scheme):
 
     line_list = []
     epoch_list = list(range(iterations))
-    tick_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
+    tick_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    for i in range(len(legends)):
+        line, = plt.plot(epoch_list, numpy.median(loss[i], axis=0), color=color_list[i], linestyle='-',
+                         marker=marker_list[i],
+                         markerfacecolor='none', ms=7, markeredgewidth=2.5, linewidth=2.5, markevery=5)
+        line_list.append(line)
+    plt.legend(line_list, legends, fontsize=25)
+    plt.xticks(tick_list, fontsize=20)
+    plt.yticks(fontsize=20)
+    plt.xlabel('Training Epochs', fontsize=25)
+    plt.ylabel('Training Loss', fontsize=25)
+    # plt.gca().yaxis.set_major_formatter(PercentFormatter(1))
+    plt.tight_layout()
+    plt.grid()
+
+    image_name = home_dir + 'Outputs/EuroSatSNN_Comparison_demo_' + scheme + '_accuracy.pdf'
+    fig.savefig(image_name, format='pdf', dpi=1200)
+    plt.show()
+
+    fig = plt.figure(figsize=(10, 8))
+    matplotlib.rcParams['mathtext.fontset'] = 'stix'
+    matplotlib.rcParams['font.family'] = 'STIXGeneral'
+
+    line_list = []
+    epoch_list = list(range(iterations))
+    tick_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
     for i in range(len(legends)):
         line, = plt.plot(epoch_list, numpy.median(acc[i], axis=0), color=color_list[i], linestyle='-',
                          marker=marker_list[i],
@@ -44,12 +69,13 @@ if __name__ == '__main__':
     with open('./Resources/EuroSAT_test_set.pkl', 'rb') as f:
         test_set = pickle.load(f)
 
-    repeat = 2
+    repeat = 1
     num_planes = 9
     num_satellites = 10
     satellites_by_plane = [num_satellites for i in range(num_planes)]
     legends = ['RelaySum (Proposed Inter-Plane Aggregation)', 'Gossip (Naive Inter-Plane Aggregation)',
                'All-Reduce (Baseline)']
+    scheme = 'Inter-Plane Comparison'
 
     constellation = ConstellationLearning(num_planes, satellites_by_plane, train_set, test_set, args)
     constellation.dataset_partition()
@@ -62,7 +88,6 @@ if __name__ == '__main__':
 
 
     for r in range(repeat):
-        print('RelaySum Training')
         connectivity_matrix = WalkerStarConnectivity
         n = len(connectivity_matrix)
         for i in range(n):
@@ -71,6 +96,8 @@ if __name__ == '__main__':
                     connectivity_matrix[i][j] = -1
         aggregation_matrix = MDST_construction(connectivity_matrix)
         print(aggregation_matrix)
+
+        print('RelaySum Training')
         constellation.spike_learning_initialization()
         constellation.inter_plane_aggregation_configuration(aggregation_matrix, RELAYSUM)
 
@@ -104,3 +131,4 @@ if __name__ == '__main__':
         out_file_name = home_dir + 'Outputs/EuroSat_SNN_InterPlane_Comparison_Repeat_' + str(
             r) + '_results.npz'
         numpy.savez(out_file_name, acc=saved_acc, loss=saved_loss)
+    plot_results(acc, loss, args.num_epoch, legends, scheme)

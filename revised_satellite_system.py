@@ -106,32 +106,32 @@ class ConstellationLearning(object):
     def dataset_partition(self):
         print('dataset partition...')
         # non-IID inter-plane partition
-        # targets = []
-        # for i in range(len(self.train_dataset)):
-        #     _, target = self.train_dataset[i]
-        #     targets.append(target.item())
-        # indices_per_plane = Dirichlet_non_iid_distribution(targets, self.args.plane_alpha, self.num_planes,
-        #                                                    n_auxi_devices=10, seed=0)
-        # for i in range(self.num_planes):
-        #     num_samples_per_satellite = int(len(indices_per_plane[i]) / self.num_sat_by_planes[i])
-        #     plane_indices = deepcopy(indices_per_plane[i])
-        #     for j in range(self.num_sat_by_planes[i]):
-        #         self.local_dataset_indices[i][j] = numpy.random.choice(plane_indices, num_samples_per_satellite,
-        #                                                                replace=False)
-        #         plane_indices = list(set(plane_indices) - set(self.local_dataset_indices[i][j]))
-
-        # IID inter-plane partition
-        all_indices = [i for i in range(len(self.train_dataset))]
-        num_samples_per_plane = int(len(all_indices) / self.num_planes)
+        targets = []
+        for i in range(len(self.train_dataset)):
+            _, target = self.train_dataset[i]
+            targets.append(target.item())
+        indices_per_plane = Dirichlet_non_iid_distribution(targets, self.args.plane_alpha, self.num_planes,
+                                                           n_auxi_devices=9, seed=0)
         for i in range(self.num_planes):
-            plane_indices = numpy.random.choice(all_indices, num_samples_per_plane, replace=False)
-            all_indices = list(set(all_indices) - set(plane_indices))
-
-            num_samples_per_satellite = int(len(plane_indices) / self.num_sat_by_planes[i])
+            num_samples_per_satellite = int(len(indices_per_plane[i]) / self.num_sat_by_planes[i])
+            plane_indices = deepcopy(indices_per_plane[i])
             for j in range(self.num_sat_by_planes[i]):
                 self.local_dataset_indices[i][j] = numpy.random.choice(plane_indices, num_samples_per_satellite,
                                                                        replace=False)
                 plane_indices = list(set(plane_indices) - set(self.local_dataset_indices[i][j]))
+
+        # # IID inter-plane partition
+        # all_indices = [i for i in range(len(self.train_dataset))]
+        # num_samples_per_plane = int(len(all_indices) / self.num_planes)
+        # for i in range(self.num_planes):
+        #     plane_indices = numpy.random.choice(all_indices, num_samples_per_plane, replace=False)
+        #     all_indices = list(set(all_indices) - set(plane_indices))
+        #
+        #     num_samples_per_satellite = int(len(plane_indices) / self.num_sat_by_planes[i])
+        #     for j in range(self.num_sat_by_planes[i]):
+        #         self.local_dataset_indices[i][j] = numpy.random.choice(plane_indices, num_samples_per_satellite,
+        #                                                                replace=False)
+        #         plane_indices = list(set(plane_indices) - set(self.local_dataset_indices[i][j]))
 
         # for i in range(self.num_planes):
         #     for j in range(self.num_sat_by_planes[i]):
@@ -277,15 +277,15 @@ class ConstellationLearning(object):
             aggregation_matrix = numpy.zeros((self.num_planes, self.num_planes))
             for p in range(self.num_planes):
                 if p == 0:
-                    aggregation_matrix[p] = 1 / 2
-                    aggregation_matrix[p + 1] = 1 / 2
+                    aggregation_matrix[p, p] = 1 / 2
+                    aggregation_matrix[p, p + 1] = 1 / 2
                 elif p == self.num_planes - 1:
-                    aggregation_matrix[p] = 1 / 2
-                    aggregation_matrix[p - 1] = 1 / 2
+                    aggregation_matrix[p, p] = 1 / 2
+                    aggregation_matrix[p, p - 1] = 1 / 2
                 else:
-                    aggregation_matrix[p] = 1 / 3
-                    aggregation_matrix[p - 1] = 1 / 3
-                    aggregation_matrix[p + 1] = 1 / 3
+                    aggregation_matrix[p, p] = 1 / 3
+                    aggregation_matrix[p, p - 1] = 1 / 3
+                    aggregation_matrix[p, p + 1] = 1 / 3
 
             for plane_idx in range(self.num_planes):
                 new_intra_plane_weights.append(
