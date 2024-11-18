@@ -10,6 +10,7 @@ from revised_satellite_system import *
 home_dir = './'
 sys.path.append(home_dir)
 
+
 def plot_results(acc, loss, iterations, legends, scheme):
     fig = plt.figure(figsize=(10, 8))
     matplotlib.rcParams['mathtext.fontset'] = 'stix'
@@ -61,6 +62,7 @@ def plot_results(acc, loss, iterations, legends, scheme):
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 
+
 if __name__ == '__main__':
     from config import args
 
@@ -84,8 +86,6 @@ if __name__ == '__main__':
     loss = numpy.zeros((3, repeat, args.num_epoch))
     saved_acc = numpy.zeros((3, args.num_epoch))
     saved_loss = numpy.zeros((3, args.num_epoch))
-
-
 
     for r in range(repeat):
         connectivity_matrix = WalkerStarConnectivity
@@ -128,7 +128,7 @@ if __name__ == '__main__':
             saved_acc[2, epoch] = constellation.test_accuracy[epoch]
             saved_loss[2, epoch] = constellation.convergence_error[epoch]
 
-        out_file_name = home_dir + 'Outputs/EuroSat_SNN_InterPlane_Comparison_Repeat_' + str(
+        out_file_name = home_dir + 'Outputs/EuroSat_SNN_InterPlane_Comparison_T_' + str(args.T) + '_alpha_' + str(args.plane_alpha) + '_Repeat_' + str(
             r) + '_results.npz'
         numpy.savez(out_file_name, acc=saved_acc, loss=saved_loss)
     plot_results(acc, loss, args.num_epoch, legends, scheme)

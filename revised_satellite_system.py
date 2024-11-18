@@ -12,6 +12,7 @@ import pickle
 from Spiking_Models.activation import NoisySpike, InvSigmoid, InvRectangle
 from Spiking_Models.neuron import LIFNeuron
 from Spiking_Models.resnet import SpikingBasicBlock, SmallResNet, ArtificialSmallResnet
+from Spiking_Models.CNN import SpikingCNN
 from constants import *
 
 
@@ -150,8 +151,10 @@ class ConstellationLearning(object):
         kwargs_spikes = {'nb_steps': self.args.T, 'vreset': 0, 'threshold': thresh,
                          'spike_fn': NoisySpike(p=self.args.p, inv_sg=inv_sg, spike=True), 'decay': decay}
 
-        self.model = SmallResNet(SpikingBasicBlock, [1, 2, 2, 2], num_classes=10, bn_type=self.args.bn_type,
-                                 **kwargs_spikes).to(self.device, self.dtype)
+        # self.model = SmallResNet(SpikingBasicBlock, [1, 2, 2, 2], num_classes=10, bn_type=self.args.bn_type,
+        #                          **kwargs_spikes).to(self.device, self.dtype)
+        self.model = SpikingCNN(num_classes=10, bn_type=self.args.bn_type, **kwargs_spikes).to(self.device, self.dtype)
+
         self.model(self.train_dataset[0][0].unsqueeze(0).to(self.device, self.dtype))
         self.global_weight = self.model.state_dict()
         self.local_weights = [[deepcopy(self.global_weight) for j in range(self.num_sat_by_planes[i])] for i in
