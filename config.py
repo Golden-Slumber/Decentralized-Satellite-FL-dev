@@ -18,8 +18,8 @@ parser.add_argument('--act', default='mns_sig', type=str)
 parser.add_argument('--alpha', default=0.2, type=float)
 # parser.add_argument('--alpha', default=10, type=float)
 
-parser.add_argument('--plane_alpha', default=0.8, type=float)
-parser.add_argument('--intra_plane_iters', default=2, type=int)
+parser.add_argument('--plane_alpha', default=0.5, type=float)
+parser.add_argument('--intra_plane_iters', default=1, type=int)
 parser.add_argument('--local_iters', default=2, type=int)
 
 parser.add_argument('--granularity', default='layer', type=str)

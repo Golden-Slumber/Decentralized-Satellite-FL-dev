@@ -98,6 +98,7 @@ class ConstellationLearning(object):
         self.transmitted_relay_weights = None
         self.received_relay_counts = None
         self.transmitted_relay_counts = None
+        self.zero_model = None
 
         # performance metrics
         self.convergence_error = numpy.zeros(self.args.num_epoch)
@@ -178,13 +179,13 @@ class ConstellationLearning(object):
             self.received_relay_counts = [[] for i in range(self.num_planes)]
             self.transmitted_relay_counts = [[] for i in range(self.num_planes)]
             tmp_model = deepcopy(self.global_weight)
-            zero_model = deepcopy(self.global_weight)
+            self.zero_model = deepcopy(self.global_weight)
             for key in tmp_model.keys():
-                zero_model[key] -= tmp_model[key]
+                self.zero_model[key] = (self.zero_model[key] - tmp_model[key]).float()
             for plane_idx in range(self.num_planes):
                 for neighbor_idx in range(self.num_planes):
-                    self.received_relay_weights[plane_idx].append(deepcopy(zero_model))
-                    self.transmitted_relay_weights[plane_idx].append(deepcopy(zero_model))
+                    self.received_relay_weights[plane_idx].append(deepcopy(self.zero_model))
+                    self.transmitted_relay_weights[plane_idx].append(deepcopy(self.zero_model))
                     self.received_relay_counts[plane_idx].append(0)
                     self.transmitted_relay_counts[plane_idx].append(0)
 
@@ -312,8 +313,22 @@ class ConstellationLearning(object):
                         self.transmitted_relay_counts[plane_idx][neighbor_idx] = new_relay_count
             # replay messages and inter-plane model aggregation
             for plane_idx in range(self.num_planes):
-                plane_weights = deepcopy(self.intra_plane_weights[plane_idx])
-                plane_count = 1
+                # plane_weights = deepcopy(self.intra_plane_weights[plane_idx])
+                # plane_count = 1
+                # for neighbor_idx in range(self.num_planes):
+                #     if self.aggregation_matrix[neighbor_idx, plane_idx] == 1 and plane_idx != neighbor_idx:
+                #         self.received_relay_weights[plane_idx][neighbor_idx] = deepcopy(
+                #             self.transmitted_relay_weights[neighbor_idx][plane_idx])
+                #         self.received_relay_counts[plane_idx][neighbor_idx] = \
+                #             self.transmitted_relay_counts[neighbor_idx][plane_idx]
+                #         plane_count += self.received_relay_counts[plane_idx][neighbor_idx]
+                #         for key in plane_weights.keys():
+                #             plane_weights[key] += self.received_relay_weights[plane_idx][neighbor_idx][key]
+                # for key in plane_weights.keys():
+                #     plane_weights[key] /= plane_count
+                # new_intra_plane_weights.append(plane_weights)
+                plane_weights = deepcopy(self.zero_model)
+                plane_count = 0
                 for neighbor_idx in range(self.num_planes):
                     if self.aggregation_matrix[neighbor_idx, plane_idx] == 1 and plane_idx != neighbor_idx:
                         self.received_relay_weights[plane_idx][neighbor_idx] = deepcopy(
@@ -324,7 +339,8 @@ class ConstellationLearning(object):
                         for key in plane_weights.keys():
                             plane_weights[key] += self.received_relay_weights[plane_idx][neighbor_idx][key]
                 for key in plane_weights.keys():
-                    plane_weights[key] /= plane_count
+                    plane_weights[key] = (self.intra_plane_weights[plane_idx][key] * (self.num_planes - plane_count) +
+                                          plane_weights[key]) / self.num_planes
                 new_intra_plane_weights.append(plane_weights)
         elif self.aggregation_scheme == ALLREDUCE:
             print('all reduce')
