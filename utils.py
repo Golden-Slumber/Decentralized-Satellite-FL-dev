@@ -52,6 +52,84 @@ def Dirichlet_non_iid_distribution(targets, non_iid_alpha, n_devices, seed=0, n_
     return idx_batch
 
 
+def correction_parameter_calculation(aggregation_matrix):
+    num_steps = 100
+    num_planes, _ = aggregation_matrix.shape
+    messages = numpy.ones((num_planes, num_planes))
+    counts = numpy.ones((num_planes, num_planes))
+    state = numpy.zeros(num_planes)
+
+    for step in range(num_steps):
+        # model update
+        # if step == 0:
+        #     state += numpy.ones(num_planes)
+
+        # send messages
+        new_messages = numpy.zeros((num_planes, num_planes))
+        new_counts = numpy.zeros((num_planes, num_planes))
+
+        for plane in range(num_planes):
+            neighbor_list = list()
+            for neighbor in range(num_planes):
+                if neighbor != plane and aggregation_matrix[plane, neighbor] == 1:
+                    neighbor_list.append(neighbor)
+            for neighbor in neighbor_list:
+                new_messages[plane, neighbor] = state[plane] + sum(
+                    messages[i, plane] for i in neighbor_list if i != neighbor)
+                new_counts[plane, neighbor] = 1 + sum(counts[i, plane] for i in neighbor_list if i != neighbor)
+
+        messages = new_messages
+        counts = new_counts
+
+        for plane in range(num_planes):
+            neighbor_list = list()
+            for neighbor in range(num_planes):
+                if neighbor != plane and aggregation_matrix[plane, neighbor] == 1:
+                    neighbor_list.append(neighbor)
+            num_messages = sum(counts[i, plane] for i in neighbor_list)
+            state[plane] = state[plane] * (num_planes - num_messages) + sum(messages[i, plane] for i in neighbor_list)
+            state[plane] /= num_planes
+            # state[plane] = (state[plane] + sum(messages[i, plane] for i in neighbor_list)) / (1 + num_messages)
+
+        # model += state
+        model_mean = 0
+        model_var = 0
+        for plane in range(num_planes):
+            model_mean += state[plane]
+        model_mean /= num_planes
+        for plane in range(num_planes):
+            model_var += (state[plane] - model_mean) ** 2
+        model_var /= num_planes
+        print('round {}, model mean: {}, model var: {}'.format(step, model_mean, model_var))
+
+    state = numpy.zeros(num_planes)
+    for step in range(num_steps):
+        if step == 0:
+            for plane in range(num_planes):
+                if plane == 0 or plane == num_planes - 1:
+                    state[plane] = (state[plane] + 1) / 2
+                else:
+                    state[plane] = (state[plane] + 2) / 3
+        else:
+            for plane in range(num_planes):
+                if plane == 0:
+                    state[plane] = (state[plane] + state[plane + 1]) / 2
+                elif plane == num_planes - 1:
+                    state[plane] = (state[plane] + state[plane - 1]) / 2
+                else:
+                    state[plane] = (state[plane] + state[plane - 1] + state[plane + 1]) / 3
+        model_mean = 0
+        model_var = 0
+        for plane in range(num_planes):
+            model_mean += state[plane]
+        model_mean /= num_planes
+        for plane in range(num_planes):
+            model_var += (state[plane] - model_mean) ** 2
+        model_var /= num_planes
+        print('round {}, model mean: {}, model var: {}'.format(step, model_mean, model_var))
+    print('{:.10f}'.format(1. / 9.))
+
+
 def time_varying_topology(num_planes, t):
     connectivity_matrix = numpy.zeros((num_planes, num_planes))
     if t % 3 == 0:
@@ -92,6 +170,7 @@ def fixed_binary_tree_topology(num_planes):
             connectivity_matrix[int(2 * i + 1), i] = 1
     return connectivity_matrix
 
+
 def fixed_chain_topology(num_planes):
     connectivity_matrix = numpy.zeros((num_planes, num_planes))
     for i in range(num_planes):
@@ -100,6 +179,7 @@ def fixed_chain_topology(num_planes):
             if i - j == 1 or j - i == 1:
                 connectivity_matrix[i, j] = 1
     return connectivity_matrix
+
 
 def fixed_ring_topology(num_planes):
     connectivity_matrix = numpy.zeros((num_planes, num_planes))
@@ -111,3 +191,18 @@ def fixed_ring_topology(num_planes):
     connectivity_matrix[0, num_planes - 1] = 1
     connectivity_matrix[num_planes - 1, 0] = 1
     return connectivity_matrix
+
+
+if __name__ == '__main__':
+    from STK_simulator.aggregation_routing_tree_construction import *
+
+    connectivity_matrix = WalkerStarConnectivity
+    n = len(connectivity_matrix)
+    for i in range(n):
+        for j in range(n):
+            if i != j and connectivity_matrix[i][j] == 0.0:
+                connectivity_matrix[i][j] = -1
+    aggregation_matrix = MDST_construction(connectivity_matrix)
+
+    print(aggregation_matrix)
+    correction_parameter_calculation(aggregation_matrix)

@@ -11,14 +11,14 @@ home_dir = './'
 sys.path.append(home_dir)
 
 
-def plot_results(acc, loss, iterations, legends, scheme):
+def plot_results(acc, loss, iterations, legends):
     fig = plt.figure(figsize=(10, 8))
     matplotlib.rcParams['mathtext.fontset'] = 'stix'
     matplotlib.rcParams['font.family'] = 'STIXGeneral'
 
     line_list = []
     epoch_list = list(range(iterations))
-    tick_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    tick_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
     for i in range(len(legends)):
         line, = plt.plot(epoch_list, numpy.median(loss[i], axis=0), color=color_list[i], linestyle='-',
                          marker=marker_list[i],
@@ -33,7 +33,7 @@ def plot_results(acc, loss, iterations, legends, scheme):
     plt.tight_layout()
     plt.grid()
 
-    image_name = home_dir + 'Outputs/EuroSatSNN_Comparison_demo_' + scheme + '_loss.pdf'
+    image_name = home_dir + 'Outputs/EuroSat_AggregationTree_Comparison_demo_loss.pdf'
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 
@@ -43,7 +43,7 @@ def plot_results(acc, loss, iterations, legends, scheme):
 
     line_list = []
     epoch_list = list(range(iterations))
-    tick_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50]
+    tick_list = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60]
     for i in range(len(legends)):
         line, = plt.plot(epoch_list, numpy.median(acc[i], axis=0), color=color_list[i], linestyle='-',
                          marker=marker_list[i],
@@ -58,7 +58,7 @@ def plot_results(acc, loss, iterations, legends, scheme):
     plt.tight_layout()
     plt.grid()
 
-    image_name = home_dir + 'Outputs/EuroSatSNN_Comparison_demo_' + scheme + '_accuracy.pdf'
+    image_name = home_dir + 'Outputs/EuroSat_AggregationTree_Comparison_demo_accuracy.pdf'
     fig.savefig(image_name, format='pdf', dpi=1200)
     plt.show()
 
@@ -75,9 +75,7 @@ if __name__ == '__main__':
     num_planes = 5
     num_satellites = 10
     satellites_by_plane = [num_satellites for i in range(num_planes)]
-    legends = ['RelaySum (Proposed Inter-Plane Aggregation)', 'Gossip (Naive Inter-Plane Aggregation)',
-               'All-Reduce (Baseline)']
-    scheme = 'Inter-Plane Comparison'
+    legends = ['Proposed Algorithm', 'Simple Chain']
     print('training epochs: ' + str(args.num_epoch) + ' plane-alpha: ' + str(args.plane_alpha))
 
     # print('dataset partition...')
@@ -102,37 +100,33 @@ if __name__ == '__main__':
     #     pickle.dump(local_dataset_indices, f)
 
     with open(home_dir + 'Outputs/EuroSat_SNN_planes_' + str(num_planes) + '_satellites_' + str(
-        num_satellites) + '_alpha_' + str(args.plane_alpha) + '_auxi_' + str(3) + '_TrainSetPartition.pkl', 'rb') as f:
+            num_satellites) + '_alpha_' + str(args.plane_alpha) + '_auxi_' + str(3) + '_TrainSetPartition.pkl',
+              'rb') as f:
         local_dataset_indices = pickle.load(f)
 
-    constellation = ConstellationLearning(num_planes, satellites_by_plane, train_set, test_set, local_dataset_indices, args)
+    constellation = ConstellationLearning(num_planes, satellites_by_plane, train_set, test_set, local_dataset_indices,
+                                          args)
     constellation.dataset_partition()
 
-    acc = numpy.zeros((3, repeat, args.num_epoch))
-    loss = numpy.zeros((3, repeat, args.num_epoch))
-    training_loss = numpy.zeros((3, repeat, args.num_epoch))
-    test_loss = numpy.zeros((3, repeat, args.num_epoch))
-    saved_acc = numpy.zeros((3, args.num_epoch))
-    saved_loss = numpy.zeros((3, args.num_epoch))
-    saved_training_loss = numpy.zeros((3, args.num_epoch))
-    saved_test_loss = numpy.zeros((3, args.num_epoch))
+    acc = numpy.zeros((2, repeat, args.num_epoch))
+    loss = numpy.zeros((2, repeat, args.num_epoch))
+    training_loss = numpy.zeros((2, repeat, args.num_epoch))
+    test_loss = numpy.zeros((2, repeat, args.num_epoch))
+    saved_acc = numpy.zeros((2, args.num_epoch))
+    saved_loss = numpy.zeros((2, args.num_epoch))
+    saved_training_loss = numpy.zeros((2, args.num_epoch))
+    saved_test_loss = numpy.zeros((2, args.num_epoch))
 
     for r in range(repeat):
-        # connectivity_matrix = WalkerStarConnectivity
-        # n = len(connectivity_matrix)
-        # for i in range(n):
-        #     for j in range(n):
-        #         if i != j and connectivity_matrix[i][j] == 0.0:
-        #             connectivity_matrix[i][j] = -1
-        # aggregation_matrix = MDST_construction(connectivity_matrix)
-        aggregation_matrix = numpy.zeros((num_planes, num_planes))
-        for i in range(num_planes):
-            for j in range(num_planes):
-                if i == j or i - 1 == j or i + 1 == j:
-                    aggregation_matrix[i][j] = 1
+        print('Optimized Training')
+        connectivity_matrix = WalkerStarConnectivity
+        n = len(connectivity_matrix)
+        for i in range(n):
+            for j in range(n):
+                if i != j and connectivity_matrix[i][j] == 0.0:
+                    connectivity_matrix[i][j] = -1
+        aggregation_matrix = MDST_construction(connectivity_matrix)
         print(aggregation_matrix)
-
-        print('RelaySum Training')
         constellation.spike_learning_initialization()
         constellation.inter_plane_aggregation_configuration(aggregation_matrix, RELAYSUM)
 
@@ -149,14 +143,21 @@ if __name__ == '__main__':
             if epoch % 5 == 0:
                 torch.cuda.empty_cache()
 
-        out_file_name = home_dir + 'Outputs/EuroSat_SNN_InterPlane_Comparison_T_' + str(args.T) + '_alpha_' + str(
-            args.plane_alpha) + '_num_planes_' + str(num_planes) + '_lr_' + str(args.lr) + '_repeat_' + str(r) + '_RelaySum_results.npz'
+        out_file_name = home_dir + 'Outputs/EuroSat_RoutingTree_Comparison_T_' + str(args.T) + '_alpha_' + str(
+            args.plane_alpha) + '_num_planes_' + str(num_planes) + '_lr_' + str(args.lr) + '_repeat_' + str(
+            r) + '_Optimized_results.npz'
         numpy.savez(out_file_name, acc=saved_acc, loss=saved_loss, trainloss=saved_training_loss,
                     testloss=saved_test_loss)
 
-        print('Gossip Training')
+        print('Chain Training')
+        aggregation_matrix = numpy.zeros((num_planes, num_planes))
+        for i in range(num_planes):
+            for j in range(num_planes):
+                if i == j or i - 1 == j or i + 1 == j:
+                    aggregation_matrix[i][j] = 1
+        print(aggregation_matrix)
         constellation.spike_learning_initialization()
-        constellation.inter_plane_aggregation_configuration(aggregation_matrix, GOSSIP)
+        constellation.inter_plane_aggregation_configuration(aggregation_matrix, RELAYSUM)
         for epoch in range(args.num_epoch):
             constellation.constellation_learning(epoch)
             acc[1, r, epoch] = constellation.test_accuracy[epoch]
@@ -170,29 +171,10 @@ if __name__ == '__main__':
             if epoch % 5 == 0:
                 torch.cuda.empty_cache()
 
-        out_file_name = home_dir + 'Outputs/EuroSat_SNN_InterPlane_Comparison_T_' + str(args.T) + '_alpha_' + str(
-            args.plane_alpha) + '_num_planes_' + str(num_planes) + '_lr_' + str(args.lr) + '_repeat_' + str(r) + '_Gossip_results.npz'
+        out_file_name = home_dir + 'Outputs/EuroSat_RoutingTree_Comparison_T_' + str(args.T) + '_alpha_' + str(
+            args.plane_alpha) + '_num_planes_' + str(num_planes) + '_lr_' + str(args.lr) + '_repeat_' + str(
+            r) + '_Chain_results.npz'
         numpy.savez(out_file_name, acc=saved_acc, loss=saved_loss, trainloss=saved_training_loss,
                     testloss=saved_test_loss)
 
-        print('All Reduce Training')
-        constellation.spike_learning_initialization()
-        constellation.inter_plane_aggregation_configuration(aggregation_matrix, ALLREDUCE)
-        for epoch in range(args.num_epoch):
-            constellation.constellation_learning(epoch)
-            acc[2, r, epoch] = constellation.test_accuracy[epoch]
-            loss[2, r, epoch] = constellation.convergence_error[epoch]
-            training_loss[2, r, epoch] = constellation.training_loss[epoch]
-            test_loss[2, r, epoch] = constellation.test_loss[epoch]
-            saved_acc[2, epoch] = constellation.test_accuracy[epoch]
-            saved_loss[2, epoch] = constellation.convergence_error[epoch]
-            saved_training_loss[2, epoch] = constellation.training_loss[epoch]
-            saved_test_loss[2, epoch] = constellation.test_loss[epoch]
-            if epoch % 5 == 0:
-                torch.cuda.empty_cache()
-
-        out_file_name = home_dir + 'Outputs/EuroSat_SNN_InterPlane_Comparison_T_' + str(args.T) + '_alpha_' + str(
-            args.plane_alpha) + '_num_planes_' + str(num_planes) + '_lr_' + str(args.lr) + '_repeat_' + str(r) + '_results.npz'
-        numpy.savez(out_file_name, acc=saved_acc, loss=saved_loss, trainloss=saved_training_loss,
-                    testloss=saved_test_loss)
-    plot_results(acc, loss, args.num_epoch, legends, scheme)
+    plot_results(acc, loss, args.num_epoch, legends)

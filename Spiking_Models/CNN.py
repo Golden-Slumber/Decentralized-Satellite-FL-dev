@@ -4,6 +4,7 @@ import pickle
 from Spiking_Models.layer import *
 from torchvision.models.resnet import BasicBlock
 
+
 def warpBN(channel, bn_type, nb_steps):
     if bn_type == 'tdbn':
         return tdLayer(nn.BatchNorm2d(channel), nb_steps)
@@ -38,7 +39,10 @@ class SpikingCNN(nn.Module):
         )
         self.maxpool2 = tdLayer(nn.MaxPool2d(kernel_size=2), nb_steps=self.nb_steps)
 
-        self.fc = tdLayer(nn.Linear(in_features=8 * 16 * 16, out_features=32), nb_steps=self.nb_steps)
+        self.fc = nn.Sequential(
+            tdLayer(nn.Linear(in_features=8 * 16 * 16, out_features=32), nb_steps=self.nb_steps),
+            LIFLayer(**kwargs_spikes)
+        )
         self.classifier = nn.Sequential(
             tdLayer(nn.Linear(in_features=32, out_features=num_classes), nb_steps=self.nb_steps),
             ReadOut()
@@ -52,5 +56,37 @@ class SpikingCNN(nn.Module):
         out = self.maxpool2(out)
         out = out.view(out.shape[0], out.shape[1], -1)
         out = self.fc(out)
+        out = self.classifier(out)
+        return out
+
+
+class ArtificialCNN(nn.Module):
+    def __init__(self, num_classes=10):
+        super(ArtificialCNN, self).__init__()
+        self.conv1 = nn.Conv2d(in_channels=3, out_channels=4, kernel_size=3, stride=1, padding=1)
+        self.batch_norm1 = nn.BatchNorm2d(4)
+        self.relu = nn.ReLU(inplace=True)
+        self.maxpool1 = nn.MaxPool2d(kernel_size=2)
+
+        self.conv2 = nn.Conv2d(in_channels=4, out_channels=8, kernel_size=3, stride=1, padding=1)
+        self.batch_norm2 = nn.BatchNorm2d(8)
+        self.maxpool2 = nn.MaxPool2d(kernel_size=2)
+
+        self.fc1 = nn.Linear(in_features=8 * 16 * 16, out_features=32)
+        self.classifier = nn.Linear(in_features=32, out_features=num_classes)
+
+    def forward(self, x):
+        out = self.conv1(x)
+        out = self.batch_norm1(out)
+        out = self.relu(out)
+        out = self.maxpool1(out)
+        out = self.conv2(out)
+        out = self.batch_norm2(out)
+        out = self.relu(out)
+        out = self.maxpool2(out)
+
+        out = out.view(x.size(0), -1)
+        out = self.fc1(out)
+        out = self.relu(out)
         out = self.classifier(out)
         return out
