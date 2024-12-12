@@ -15,6 +15,7 @@ from Spiking_Models.resnet import SpikingBasicBlock, SmallResNet, ArtificialSmal
 from Spiking_Models.CNN import SpikingCNN, ArtificialCNN
 from constants import *
 import datetime
+import gc
 
 def wrap_decay(decay):
     import math
@@ -271,9 +272,10 @@ class ConstellationLearning(object):
         # else:
         #     lr = self.args.lr
         # lr = self.args.lr
-        lr = self.args.lr * (0.95 ** epoch)
-        if self.aggregation_scheme != RELAYSUM:
-            lr /= 2
+        lr = self.args.lr * (self.args.lr_decay_ratio ** ((epoch + 1) / self.args.lr_decay_phase))
+        # print(lr)
+        # if self.aggregation_scheme != RELAYSUM:
+        #     lr /= 2
         # if 30 <= epoch + 1 < 60:
         #     lr = lr / 10
         # elif epoch + 1 >= 60:
@@ -289,9 +291,9 @@ class ConstellationLearning(object):
         # for param_group in self.optimizer_list[plane_idx][sat_idx].param_groups:
         #     param_group['lr'] = lr
 
-        # data_loader = DataLoader(DatasetSplit(self.train_dataset, self.local_dataset_indices[plane_idx][sat_idx]),
-        #                          batch_size=self.args.train_batch_size, shuffle=True,
-        #                          pin_memory=True, num_workers=self.args.num_workers)
+        data_loader = DataLoader(DatasetSplit(self.train_dataset, self.local_dataset_indices[plane_idx][sat_idx]),
+                                 batch_size=self.args.train_batch_size, shuffle=True,
+                                 pin_memory=True, num_workers=self.args.num_workers)
 
         local_train_loss, local_train_acc = 0, 0
         for local_iter in range(self.args.local_iters):
@@ -299,7 +301,8 @@ class ConstellationLearning(object):
             predict_tot = []
             label_tot = []
 
-            for idx, (data, target) in enumerate(self.train_loaders[plane_idx][sat_idx]):
+            # for idx, (data, target) in enumerate(self.train_loaders[plane_idx][sat_idx]):
+            for idx, (data, target) in enumerate(data_loader):
                 data, target = data.to(self.device), target.to(self.device)
                 target = target.view(-1)
 
@@ -320,9 +323,11 @@ class ConstellationLearning(object):
                 # self.width_optim_list[plane_idx][sat_idx].step()
 
                 predict = torch.argmax(output, dim=1)
-                loss_tot.append(loss.detach().cpu())
+                # loss_tot.append(loss.detach().cpu())
+                loss_tot.append(loss.detach_())
                 predict_tot.append(predict)
                 label_tot.append(target)
+
             predict_tot = torch.cat(predict_tot)
             label_tot = torch.cat(label_tot)
             local_train_acc = torch.mean((predict_tot == label_tot).float())
@@ -347,8 +352,12 @@ class ConstellationLearning(object):
         del label_tot
         del params
         del spiking_params
+        del data_loader
+        gc.collect()
+        torch.cuda.empty_cache()
 
-        return local_train_loss.item(), local_train_acc.item()
+        # return local_train_loss.item(), local_train_acc.item()
+        return local_train_loss.detach_().item(), local_train_acc.detach_().item()
 
     def inference(self, data_loader):
         self.model.load_state_dict(self.global_weight)
@@ -378,8 +387,11 @@ class ConstellationLearning(object):
             del predict_tot
             del label_tot
             del loss_tot
+            gc.collect()
+            torch.cuda.empty_cache()
 
-            return test_loss.item(), test_acc.item()
+            # return test_loss.item(), test_acc.item()
+            return test_loss.detach_().item(), test_acc.detach_().item()
 
     def constellation_learning(self, epoch):
         train_loss_list = [0. for i in range(self.num_planes)]
@@ -440,6 +452,8 @@ class ConstellationLearning(object):
                         self.transmitted_relay_weights[plane_idx][neighbor_idx] = deepcopy(new_relay_weights)
                         self.transmitted_relay_counts[plane_idx][neighbor_idx] = new_relay_count
                         del new_relay_weights
+                        gc.collect()
+                        torch.cuda.empty_cache()
             # replay messages and inter-plane model aggregation
             for plane_idx in range(self.num_planes):
                 plane_weights = deepcopy(self.intra_plane_weights[plane_idx])
@@ -457,6 +471,8 @@ class ConstellationLearning(object):
                     plane_weights[key] /= plane_count
                 new_intra_plane_weights.append(deepcopy(plane_weights))
                 del plane_weights
+                gc.collect()
+                torch.cuda.empty_cache()
 
                 # print(self.transmitted_relay_counts[plane_idx])
                 # plane_weights = deepcopy(self.zero_model)
@@ -483,6 +499,8 @@ class ConstellationLearning(object):
             for plane_idx in range(self.num_planes):
                 new_intra_plane_weights.append(deepcopy(all_reduced_weights))
             del all_reduced_weights
+            gc.collect()
+            torch.cuda.empty_cache()
 
         # broadcast model weights
         self.global_weight = average_weights(new_intra_plane_weights)
@@ -492,13 +510,19 @@ class ConstellationLearning(object):
         del new_intra_plane_weights
 
         # performance metric recording
-        # training_loader = DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True,
-        #                              pin_memory=True, num_workers=self.args.num_workers)
-        loss, _ = self.inference(self.total_data_loader)
+        training_loader = DataLoader(self.train_dataset, batch_size=self.args.train_batch_size, shuffle=True,
+                                     pin_memory=True, num_workers=self.args.num_workers)
+        # loss, _ = self.inference(self.total_data_loader)
+        loss, _ = self.inference(training_loader)
+        del training_loader
         training_loss = sum(train_loss_list) / self.num_planes
-        # test_loader = DataLoader(self.test_dataset, batch_size=self.args.test_batch_size, shuffle=True,
-        #                          pin_memory=True, num_workers=self.args.num_workers)
-        test_loss, acc = self.inference(self.test_data_loader)
+        test_loader = DataLoader(self.test_dataset, batch_size=self.args.test_batch_size, shuffle=True,
+                                 pin_memory=True, num_workers=self.args.num_workers)
+        # test_loss, acc = self.inference(self.test_data_loader)
+        test_loss, acc = self.inference(test_loader)
+        del test_loader
+        gc.collect()
+        torch.cuda.empty_cache()
 
         self.convergence_error[epoch] = loss
         self.test_accuracy[epoch] = acc
@@ -510,15 +534,20 @@ class ConstellationLearning(object):
 
 
 if __name__ == '__main__':
-    with open('./Resources/EuroSAT_train_set.pkl', 'rb') as f:
-        train_set = pickle.load(f)
-    print(train_set[0][0].shape)
-    print(train_set[0][0].unsqueeze(0).shape)
-
-    targets = []
-    for i in range(len(train_set)):
-        _, target = train_set[i]
-        targets.append(target.item())
-    indices_per_plane = Dirichlet_non_iid_distribution(targets, 0.2, 9, n_auxi_devices=10, seed=0)
-    print(type(indices_per_plane))
-    print(indices_per_plane)
+    from config import args
+    epoch = 0
+    lr = args.lr * (0.5 ** ((epoch + 1) % 10))
+    print(lr)
+    print((epoch + 1) / args.lr_decay_phase)
+    # with open('./Resources/EuroSAT_train_set.pkl', 'rb') as f:
+    #     train_set = pickle.load(f)
+    # print(train_set[0][0].shape)
+    # print(train_set[0][0].unsqueeze(0).shape)
+    #
+    # targets = []
+    # for i in range(len(train_set)):
+    #     _, target = train_set[i]
+    #     targets.append(target.item())
+    # indices_per_plane = Dirichlet_non_iid_distribution(targets, 0.2, 9, n_auxi_devices=10, seed=0)
+    # print(type(indices_per_plane))
+    # print(indices_per_plane)
