@@ -10,6 +10,8 @@ class LIFLayer(nn.Module):
         self.neuron = neuron(**neuron_args)
         self.nb_steps = nb_steps
 
+        self.avg_spike_rate = None
+
     def create_mask(self, x: torch.Tensor, p: float):
         return torch.bernoulli(torch.ones_like(x) * (1 - p))
 
@@ -20,8 +22,24 @@ class LIFLayer(nn.Module):
             current = x[step]
             vmem, spike = self.neuron(vmem, current)
             spikes.append(spike * self.neuron.threshold)
+        # tmp_spikes = torch.stack(spikes).view(3, -1)
+        # print(tmp_spikes.shape)
+        # total_spikes = 0
+        # for i in range(3):
+        #     for j in range(tmp_spikes.shape[1]):
+        #         if tmp_spikes[i, j] == 1:
+        #             total_spikes += 1
+        # print(total_spikes)
+        # print(tmp_spikes)
+        if not self.training:
+            self.record_spikes(torch.stack(spikes).view(self.nb_steps, x.shape[1], -1))
         return torch.stack(spikes)
 
+    def record_spikes(self, spikes):
+        num_spikes = 0
+        for idx in range(spikes.shape[1]):
+            num_spikes += torch.sum(spikes[:, idx, :])
+        self.avg_spike_rate = num_spikes / spikes.shape[1] / spikes.shape[2]
 
 class tdLayer(nn.Module):
     def __init__(self, layer, nb_steps):

@@ -272,7 +272,7 @@ class ConstellationLearning(object):
         # else:
         #     lr = self.args.lr
         # lr = self.args.lr
-        lr = self.args.lr * (self.args.lr_decay_ratio ** ((epoch + 1) / self.args.lr_decay_phase))
+        lr = self.args.lr * (self.args.lr_decay_ratio ** int((epoch + 1) / self.args.lr_decay_phase))
         # print(lr)
         # if self.aggregation_scheme != RELAYSUM:
         #     lr /= 2

@@ -4,8 +4,10 @@ from tqdm import tqdm
 from comtypes.gen import STKObjects, STKUtil, AgStkGatorLib
 from comtypes.client import CreateObject, GetActiveObject, GetEvents, ShowEvents
 
-PLANE_NUM = 9
-SAT_NUM = 10
+# PLANE_NUM = 9
+# SAT_NUM = 10
+PLANE_NUM = 7
+SAT_NUM = 8
 CARRIER_FREQUENCY = 2.4  # GHz
 EIRP = 10  # dbW
 STEP_SEC = 3600  # sec
@@ -83,6 +85,8 @@ def compute_access(access):
             link_info_results = link_info_obj.ExecElements(access_start_time_list[idx], access_stop_time_list[idx],
                                                            STEP_SEC, SIMPLIFIED_LINK_ELEMENTS)
             doppler_list = list(link_info_results.DataSets.GetDataSetByName('Freq. Doppler Shift').GetValues())
+            for i in range(len(doppler_list)):
+                doppler_list[i] = abs(doppler_list[i])
             snr_list = list(link_info_results.DataSets.GetDataSetByName('Eb/No').GetValues())
             print(max(doppler_list))
             if max(doppler_list) < DOPPLER_THRESHOLD:
@@ -102,32 +106,35 @@ def check_access(plane_idx, neighbor_idx, sat_dic):
     connection_stop_time = 0.0
     avg_snr = 0.0
     access_flag = False
-    trans_sat = sat_dic['Sat' + str(plane_idx + 1) + '01'].Children.GetElements(STKObjects.eTransmitter)[0]
-    trans_obj = trans_sat.QueryInterface(STKObjects.IAgStkObject)
-    for i in range(SAT_NUM):
-        tail_str = str(i + 1)
-        if i + 1 < 10:
-            tail_str = '0' + tail_str
-        recv_sat = sat_dic['Sat' + str(neighbor_idx + 1) + tail_str].Children.GetElements(STKObjects.eReceiver)[0]
-        recv_obj = recv_sat.QueryInterface(STKObjects.IAgStkObject)
+    # trans_sat = sat_dic['Sat' + str(plane_idx + 1) + '01'].Children.GetElements(STKObjects.eTransmitter)[0]
+    for j in range(SAT_NUM):
+        trans_sat = sat_dic['Sat' + str(plane_idx + 1) + str(j+1)].Children.GetElements(STKObjects.eTransmitter)[0]
+        trans_obj = trans_sat.QueryInterface(STKObjects.IAgStkObject)
+        for i in range(SAT_NUM):
+            tail_str = str(i + 1)
+            # if i + 1 < 10:
+            #     tail_str = '0' + tail_str
+            recv_sat = sat_dic['Sat' + str(neighbor_idx + 1) + tail_str].Children.GetElements(STKObjects.eReceiver)[0]
+            recv_obj = recv_sat.QueryInterface(STKObjects.IAgStkObject)
 
-        access = recv_obj.GetAccessToObject(trans_obj)
-        print('Sat' + str(plane_idx + 1) + '01--Sat' + str(neighbor_idx + 1) + tail_str)
-        connection_list = connection_list + compute_access(access)
-        # print(valid_access_start_list)
-        # print(valid_access_stop_list)
-        # print(valid_snr_list)
-        # for j in range(len(connection_list)):
-        #     extend_stop_flag = connection_list[j][0] <= connection_stop_time < connection_list[
-        #         j][1]
-        #     extend_start_flag = connection_list[j][0] < connection_start_time <= connection_list[j][1]
-        #     if extend_start_flag or extend_stop_flag:
-        #         connection_start_time = min(connection_list[j][0], connection_start_time)
-        #         connection_stop_time = max(connection_list[j][1], connection_stop_time)
-        #         if avg_snr != 0.0:
-        #             avg_snr = (avg_snr + connection_list[j][2]) / 2
-        #         else:
-        #             avg_snr = connection_list[j][2]
+            access = recv_obj.GetAccessToObject(trans_obj)
+            # print('Sat' + str(plane_idx + 1) + '01--Sat' + str(neighbor_idx + 1) + tail_str)
+            print('Sat' + str(plane_idx + 1) + str(j+1) + '--Sat' + str(neighbor_idx + 1) + tail_str)
+            connection_list = connection_list + compute_access(access)
+            # print(valid_access_start_list)
+            # print(valid_access_stop_list)
+            # print(valid_snr_list)
+            # for j in range(len(connection_list)):
+            #     extend_stop_flag = connection_list[j][0] <= connection_stop_time < connection_list[
+            #         j][1]
+            #     extend_start_flag = connection_list[j][0] < connection_start_time <= connection_list[j][1]
+            #     if extend_start_flag or extend_stop_flag:
+            #         connection_start_time = min(connection_list[j][0], connection_start_time)
+            #         connection_stop_time = max(connection_list[j][1], connection_stop_time)
+            #         if avg_snr != 0.0:
+            #             avg_snr = (avg_snr + connection_list[j][2]) / 2
+            #         else:
+            #             avg_snr = connection_list[j][2]
     connection_list = sorted(connection_list, key=lambda t: (t[0], t[1]))
     print(connection_list)
     flag_time = connection_start_time
